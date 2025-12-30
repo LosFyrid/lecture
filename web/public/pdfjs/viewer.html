@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PDF Viewer</title>
+    <link rel="stylesheet" href="./viewer.css" />
+  </head>
+  <body>
+    <div class="app">
+      <div class="toolbar">
+        <div class="left">
+          <button class="btn" id="prevBtn" type="button">上一页</button>
+          <button class="btn" id="nextBtn" type="button">下一页</button>
+          <span class="meta" id="pageMeta">加载中…</span>
+        </div>
+
+        <div class="right">
+          <div class="mode">
+            <button class="btn" id="modePagedBtn" type="button">点击翻页</button>
+            <button class="btn" id="modeScrollBtn" type="button">连续滚动</button>
+          </div>
+          <button class="btn" id="zoomOutBtn" type="button">-</button>
+          <span class="meta" id="zoomMeta">100%</span>
+          <button class="btn" id="zoomInBtn" type="button">+</button>
+          <a class="link" id="openLink" href="#" target="_blank" rel="noreferrer">新标签打开</a>
+        </div>
+      </div>
+
+      <div class="main">
+        <div class="card">
+          <div class="message" id="message"></div>
+          <div class="single" id="single">
+            <div class="page" id="singlePage" data-page-number="1">
+              <canvas class="pageCanvas"></canvas>
+              <div class="textLayer"></div>
+            </div>
+          </div>
+          <div id="pages" class="pages"></div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./viewer.mjs"></script>
+  </body>
+</html>

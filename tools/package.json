@@ -1,0 +1,14 @@
+{
+  "name": "lecture-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "archive-url": "node ./archive-url-to-pdf.mjs",
+    "archive-url-html": "node ./archive-url-to-html.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.895.0",
+    "cheerio": "1.1.2",
+    "playwright": "1.56.1"
+  }
+}

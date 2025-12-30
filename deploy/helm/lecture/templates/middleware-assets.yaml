@@ -1,0 +1,39 @@
+{{- if and .Values.ingress.enabled .Values.ingress.assetsProtection.enabled -}}
+{{- $apiVersion := .Values.ingress.traefik.crdApiVersion -}}
+
+{{- if .Values.ingress.assetsProtection.rateLimit.enabled -}}
+apiVersion: {{ $apiVersion }}
+kind: Middleware
+metadata:
+  name: {{ include "lecture.assets.ratelimit.name" . }}
+  labels:
+    {{- include "lecture.labels" . | nindent 4 }}
+spec:
+  rateLimit:
+    average: {{ .Values.ingress.assetsProtection.rateLimit.average }}
+    burst: {{ .Values.ingress.assetsProtection.rateLimit.burst }}
+    {{- if .Values.ingress.assetsProtection.rateLimit.period }}
+    period: {{ .Values.ingress.assetsProtection.rateLimit.period }}
+    {{- end }}
+    sourceCriterion:
+      ipStrategy:
+        depth: {{ .Values.ingress.assetsProtection.rateLimit.ipStrategyDepth }}
+---
+{{- end -}}
+
+{{- if .Values.ingress.assetsProtection.inFlightReq.enabled -}}
+apiVersion: {{ $apiVersion }}
+kind: Middleware
+metadata:
+  name: {{ include "lecture.assets.inflight.name" . }}
+  labels:
+    {{- include "lecture.labels" . | nindent 4 }}
+spec:
+  inFlightReq:
+    amount: {{ .Values.ingress.assetsProtection.inFlightReq.amount }}
+    sourceCriterion:
+      ipStrategy:
+        depth: {{ .Values.ingress.assetsProtection.inFlightReq.ipStrategyDepth }}
+{{- end -}}
+{{- end }}
+

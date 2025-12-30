@@ -1,0 +1,224 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --border: rgba(0, 0, 0, 0.08);
+  --text: #18181b;
+  --muted: #52525b;
+  --btn-bg: rgba(0, 0, 0, 0.04);
+  --btn-bg-hover: rgba(0, 0, 0, 0.08);
+  --btn-bg-disabled: rgba(0, 0, 0, 0.02);
+  --shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #09090b;
+    --panel: #09090b;
+    --border: rgba(255, 255, 255, 0.12);
+    --text: #fafafa;
+    --muted: rgba(255, 255, 255, 0.72);
+    --btn-bg: rgba(255, 255, 255, 0.08);
+    --btn-bg-hover: rgba(255, 255, 255, 0.12);
+    --btn-bg-disabled: rgba(255, 255, 255, 0.06);
+    --shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+  }
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
+    Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.left,
+.right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mode {
+  display: flex;
+  gap: 6px;
+  margin-right: 2px;
+}
+
+.btnActive {
+  background: rgba(56, 189, 248, 0.14);
+  border-color: rgba(56, 189, 248, 0.55);
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.18) inset;
+  font-weight: 600;
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--btn-bg-hover);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  background: var(--btn-bg-disabled);
+}
+
+.meta {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.link {
+  font-size: 13px;
+  color: var(--text);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  border-radius: 10px;
+}
+
+.link:hover {
+  background: var(--btn-bg-hover);
+}
+
+.main {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 12px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.single {
+  display: flex;
+  justify-content: center;
+}
+
+.message {
+  display: none;
+  max-width: 720px;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+.message.show {
+  display: block;
+}
+
+.pages {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.page {
+  position: relative;
+  margin: 0 auto;
+  background: transparent;
+  user-select: text;
+}
+
+.pageCanvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 10px;
+}
+
+/* Mode switches */
+:root[data-mode="paged"] .pages {
+  display: none;
+}
+
+:root[data-mode="scroll"] .single {
+  display: none;
+}
+
+/* In scroll mode, keep the UI focused on scrolling (no "click to flip"). */
+:root[data-mode="scroll"] #prevBtn,
+:root[data-mode="scroll"] #nextBtn {
+  display: none;
+}
+
+/* In continuous mode, remove per-page rounding (requested). */
+:root[data-mode="scroll"] .pageCanvas {
+  border-radius: 0;
+}
+
+/* Text layer (for selection). This is a minimal subset of PDF.js styles. */
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: 2;
+  line-height: 1;
+  text-size-adjust: none;
+  transform-origin: 0 0;
+  user-select: text;
+}
+
+.textLayer span,
+.textLayer br {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.textLayer ::selection {
+  background: rgba(56, 189, 248, 0.35);
+}
+
+.textLayer ::-moz-selection {
+  background: rgba(56, 189, 248, 0.35);
+}

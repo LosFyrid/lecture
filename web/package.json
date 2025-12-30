@@ -1,0 +1,36 @@
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "predev": "node scripts/build-content.mjs && node scripts/copy-pdfjs-assets.mjs",
+    "dev": "next dev --webpack",
+    "prebuild": "node scripts/build-content.mjs && node scripts/copy-pdfjs-assets.mjs",
+    "build": "next build --webpack",
+    "start": "next start",
+    "prelint": "node scripts/build-content.mjs",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "next": "16.1.1",
+    "pdfjs-dist": "5.4.296",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-markdown": "10.1.0",
+    "sanitize-html": "2.17.0",
+    "remark-gfm": "4.0.1",
+    "yaml": "2.8.2",
+    "zod": "4.2.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/sanitize-html": "^2.16.0",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.1",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

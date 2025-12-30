@@ -1,0 +1,11 @@
+id: agent-dev
+title: Agent 开发入门（示例）
+description: |
+  一个示例 Track，用来演示“学习路径 → 模块 → 课时”的组织方式。
+  你可以按团队 SOP 自行拆分模块与课时。
+modules:
+  - id: basics
+    title: 基础
+    lessons:
+      - intro
+

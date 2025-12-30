@@ -1,0 +1,5 @@
+/lecture-api
+/bin/
+/dist/
+*.local
+

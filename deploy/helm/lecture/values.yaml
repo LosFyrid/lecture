@@ -1,0 +1,77 @@
+nameOverride: ""
+fullnameOverride: ""
+
+web:
+  replicaCount: 1
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    port: 3000
+  resources: {}
+
+api:
+  replicaCount: 1
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    port: 8080
+  resources: {}
+  env:
+    # Optional override (applies to all assets). If empty, the gateway chooses:
+    # - immutable keys (e.g. "*.v20251227T120102Z.pdf"): assetCacheControlImmutable
+    # - other keys: assetCacheControlDefault
+    assetCacheControl: ""
+    assetCacheControlDefault: "public, max-age=3600"
+    assetCacheControlImmutable: "public, max-age=31536000, immutable"
+
+    # Comma-separated prefixes. Empty means allow all keys in the bucket.
+    # Recommended for public sites: restrict to dedicated prefixes.
+    assetAllowedPrefixes: "pdf/,archive/"
+  minio:
+    endpoint: ""
+    useSSL: true
+    bucket: "lecture"
+    region: "us-east-1"
+
+    # Recommended: reference an existing Secret instead of putting credentials in values.
+    existingSecret: ""
+    accessKeyIdKey: "accessKeyId"
+    secretAccessKeyKey: "secretAccessKey"
+
+    # Optional: create a Secret from these values (not recommended for production).
+    accessKeyId: ""
+    secretAccessKey: ""
+
+ingress:
+  enabled: true
+  className: "traefik"
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+  certManager:
+    enabled: true
+    clusterIssuer: "letsencrypt-prod"
+  traefik:
+    # Traefik CRD group. Some clusters use "traefik.containo.us/v1alpha1".
+    crdApiVersion: "traefik.io/v1alpha1"
+  assetsProtection:
+    enabled: true
+    inFlightReq:
+      enabled: true
+      amount: 20
+      ipStrategyDepth: 1
+    rateLimit:
+      enabled: true
+      average: 60
+      burst: 120
+      # Optional. Leave empty for default behavior.
+      period: ""
+      ipStrategyDepth: 1
+  hosts:
+    - host: "lecture.example.com"
+  tls:
+    enabled: true
+    secretName: "lecture-tls"

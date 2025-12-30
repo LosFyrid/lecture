@@ -1,0 +1,44 @@
+{{- if .Values.ingress.enabled -}}
+{{- $middlewares := list -}}
+{{- if and .Values.ingress.assetsProtection.enabled .Values.ingress.assetsProtection.rateLimit.enabled -}}
+{{- $middlewares = append $middlewares (include "lecture.assets.ratelimit.ref" .) -}}
+{{- end -}}
+{{- if and .Values.ingress.assetsProtection.enabled .Values.ingress.assetsProtection.inFlightReq.enabled -}}
+{{- $middlewares = append $middlewares (include "lecture.assets.inflight.ref" .) -}}
+{{- end -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "lecture.fullname" . }}-assets
+  labels:
+    {{- include "lecture.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+    {{- if gt (len $middlewares) 0 }}
+    traefik.ingress.kubernetes.io/router.middlewares: {{ join "," $middlewares | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        {{- range .Values.ingress.hosts }}
+        - {{ .host | quote }}
+        {{- end }}
+      secretName: {{ .Values.ingress.tls.secretName | quote }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          - path: /assets
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "lecture.api.name" $ }}
+                port:
+                  name: http
+    {{- end }}
+{{- end }}
+
