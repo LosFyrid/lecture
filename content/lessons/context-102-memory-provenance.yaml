@@ -1,0 +1,100 @@
+id: context-102-memory-provenance
+title: "Context Engineering（下）：Memory、Provenance 与可复现"
+summary: |
+  让 agent 跨会话“记得住且记得对”：理解 memory 的类型、生成机制（extraction/consolidation）、provenance/lineage（可追溯性），以及把 memory 当作 tool 的工程化实现方式。
+items:
+  - type: md
+    title: 学习目标
+    body: |
+      学完本课，你应该能够：
+
+      - 解释为什么 memory 不是“把对话存起来”，而是“生成可用的长期资产”。
+      - 给出 memory 的基本设计维度：信息类型、组织方式、存储架构、作用域（scope）。
+      - 说明为什么 provenance/lineage 对科研 agent 是刚需（否则无法引用、无法复现、会污染推理）。
+      - 把 memory 显式化为 tools：`write_memory(...)` / `retrieve_memory(...)`，并指出 schema 与权限边界。
+
+  - type: md
+    title: 为什么需要 Memory（Session 不够）
+    body: |
+      Session 解决“当前任务”的连续性，但科研任务往往跨天/跨周，需要长期一致性与可复用经验：
+
+      - 项目背景事实（project facts）：研究对象、已知结论、数据来源
+      - 工作偏好：单位、格式、常用数据库与阈值
+      - 可复用策略：某类数据清洗流程、实验 SOP、分析 pipeline
+
+      风险提醒：memory 会直接影响后续推理；如果记错，它会以“看起来合理”的方式持续污染结果。
+
+  - type: md
+    title: Memory 的设计空间（做研究时可以当作变量）
+    body: |
+      你不需要死记名词，但要会用它做设计选择：
+
+      - **信息类型**：事实 / 偏好 / 计划 / 行动记录 / 程序性知识（procedural）
+      - **组织方式**：按实体（项目/样品/人）、按主题、按时间线、按任务
+      - **存储架构**：
+        - 向量检索（语义相似）
+        - 结构化存储（key-value / relational）用于强字段（单位、编号、浓度）
+        - 混合检索（科研常见：既要语义召回又要精确过滤）
+      - **作用域（scope）**：用户级 / 项目级 / 团队级（决定共享与隐私策略）
+
+  - type: md
+    title: Memory Generation：Extraction + Consolidation
+    body: |
+      有效 memory 的关键在于“生成机制”：
+
+      - **Extraction（抽取）**：从对话/轨迹中抽取关键事实与偏好（建议结构化）
+      - **Consolidation（整合）**：去重、冲突解决、版本更新，把多次抽取变成更稳定的长期记忆
+
+      科研映射：
+      - Extraction 像“自动写实验记录摘要”
+      - Consolidation 像“把多次实验总结成 SOP/经验规律”
+
+  - type: html
+    title: Provenance / Lineage：科研 agent 的“引用系统”
+    note: 没有 provenance 的 memory，本质上是“不可引用的二手知识”，会让研究结论失去可追溯性。
+    body: |
+      <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
+        <div style="font-weight:600; margin-bottom:6px;">你至少要能回答这些问题</div>
+        <div> - 这条记忆来自哪次会话/哪次 tool result/哪篇论文/哪条实验记录？</div>
+        <div> - 这条记忆是否被修改过？何时修改？由谁/由哪个策略修改？</div>
+        <div> - 本次推理使用了哪些记忆？它们对结论的贡献是什么？</div>
+        <div style="height:10px;"></div>
+        <div style="font-weight:600; margin-bottom:6px;">最小实践</div>
+        <div>为每条 memory 记录：source、retrieved_at、confidence（或证据强度）、适用范围（scope）。</div>
+      </div>
+
+  - type: md
+    title: Memory-as-a-Tool（推荐工程化方式）
+    body: |
+      把 memory 显式化为 tools 的好处是：可评估、可审计、可控制。
+
+      - `write_memory(entry)`：强 schema + validation + provenance（写入时就把风险降下来）
+      - `retrieve_memory(query, filters)`：语义检索 + 结构化过滤（时间/项目/实体/来源）
+
+      这会直接提升：
+      - Evaluation：你可以统计“memory 写入/命中率”“引用准确性”“污染案例”
+      - AgentOps：你可以对 memory tool 加权限、预算、审计、回滚策略
+
+  - type: md
+    title: 小练习（为你的科研 agent 设计 2 类长期记忆）
+    body: |
+      写下你认为最有价值、且风险可控的两类 memory（建议从小做起）：
+
+      1) **项目事实（project facts）**：必须带 provenance（来源、版本、时间戳）  
+      2) **工作偏好（preferences）**：单位、输出格式、常用工具链
+
+      然后回答：这些 memory 在推理时应当放在 system instructions 里，还是 conversation history 里，还是作为可调用工具的结果？
+
+  - type: md
+    layout: inline
+    body: |
+      原文节选建议：
+
+      - 源 PDF：`Context Engineering_ Sessions & Memory.pdf`
+      - 建议裁剪页码：第 **27–64** 页（对应章节：Memory / types / extraction & consolidation / provenance & lineage / memory-as-a-tool / retrieval timing / inference with memories）
+
+      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
+  - type: pdf
+    title: "原文节选：Context Engineering（第 27–64 页）"
+    assetKey: pdf/excerpts/Context_Engineering.p27-64.pdf
+

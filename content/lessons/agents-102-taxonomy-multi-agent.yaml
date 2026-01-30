@@ -1,0 +1,90 @@
+id: agents-102-taxonomy-multi-agent
+title: "Agent 能力分级 + Multi-Agent：从单体到协作系统"
+summary: |
+  用 taxonomy 判断你在构建哪一类 agent；理解 multi-agent 的动机、基本模式、以及它引入的新失败模式（协调、共享上下文、涌现行为）。
+items:
+  - type: md
+    title: 学习目标
+    body: |
+      学完本课，你应该能够：
+
+      - 使用 “Level 0–4” taxonomy 给你见过的系统分类（并解释分类理由）。
+      - 解释为什么 multi-agent 在学界与科研场景中是必须掌握的方向（不是“花活”）。
+      - 列出 multi-agent 的最小设计要素：角色、通信、共享/私有上下文、终止条件、冲突解决。
+
+  - type: md
+    title: Taxonomy（Level 0 → 4）：一个非常实用的分类框架
+    body: |
+      这套 taxonomy 的用途是：帮你回答“我现在做的到底是什么水平的 agent？”而不是追求更高 level。
+
+      - **Level 0：Core Reasoning System**  
+        只有模型推理（可能加 prompt），几乎不与外部世界交互。
+      - **Level 1：Connected Problem-Solver**  
+        引入 tools / retrieval，让推理能接触事实、执行动作。
+      - **Level 2：Strategic Problem-Solver**  
+        更强调规划、反思、记忆、策略选择：能在长任务中稳健决策。
+      - **Level 3：Collaborative Multi-Agent System**  
+        多 agent 分工协作（planner / executor / critic 等），通过通信协议与共享状态完成复杂任务。
+      - **Level 4：Self-Evolving System**  
+        引入评估、反馈、仿真等机制，实现系统持续改进（更接近“研究系统”而不仅是“应用”）。
+
+      重要提醒（研究取向）：
+      - **Level 越高，研究成本越高**：需要更强的可观测、评估与治理，否则你很难解释结果，更难复现。
+
+  - type: md
+    title: Multi-Agent 为什么“必须学”（尤其是学界 / for science）
+    body: |
+      学界与科研任务的复杂性，天然契合 multi-agent：
+
+      - 复杂任务往往需要 **异质能力**：检索、推理、实验/计算、写作、审稿式批判。把这些塞进一个 prompt 往往不可控。
+      - 科研流程本身就是“多角色协作”：提出假设（planner）→ 设计实验（designer）→ 执行与分析（executor）→ 质疑与复核（critic）。
+      - multi-agent 提供一种工程化方式，把“研究流程”变成可观测的系统：你可以记录每个角色的输入/输出/决策依据。
+
+      但 multi-agent 也会引入新问题（你需要提前意识到）：
+
+      - **协调成本**：谁负责最终决策？谁写共享状态？如何避免循环对话？
+      - **共享上下文的污染**：一个 agent 的错误可能被写入共享上下文，污染整个系统。
+      - **涌现失败模式**：deadlock、资源竞争、重复劳动、互相“说服”式幻觉。
+
+  - type: html
+    title: 设计提示（最小可行的 multi-agent 方案）
+    note: 不要一上来就 5 个角色。先从“2–3 个角色 + 明确协议”开始。
+    body: |
+      <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
+        <div style="font-weight:600; margin-bottom:6px;">推荐起步架构（3 角色）</div>
+        <div>1) Planner：把目标分解为可执行子任务，输出计划（可结构化）。</div>
+        <div>2) Executor：调用 tools 完成子任务，记录证据与来源（provenance）。</div>
+        <div>3) Critic/Verifier：检查证据链与结论一致性，提出反例与风险。</div>
+        <div style="height:10px;"></div>
+        <div style="font-weight:600; margin-bottom:6px;">必须写清的“协议”</div>
+        <div> - 共享状态 schema（哪些字段允许写入、如何更新）。</div>
+        <div> - 终止条件（何时停止、何时向人求助）。</div>
+        <div> - 冲突解决（planner 与 critic 不一致时怎么办）。</div>
+      </div>
+
+  - type: md
+    title: 小练习（把单 agent 任务改写成 multi-agent）
+    body: |
+      选择一个你熟悉的科研任务，例如：
+
+      - “从 20 篇论文里总结某种催化机理的证据，并给出反对证据”
+
+      把它改写成 multi-agent：
+
+      1) Planner：输出 5–8 个子任务（检索/筛选/证据表/反证表/总结）  
+      2) Executor：每个子任务调用哪些 tools？输出什么结构化结果？  
+      3) Critic：用什么 rubric 检查“证据链完整性”和“引用准确性”？
+
+  - type: md
+    layout: inline
+    body: |
+      原文节选建议：
+
+      - 源 PDF：`Introduction_to_Agents.pdf`
+      - 建议裁剪页码：第 **14–26** 页（对应章节：A Taxonomy of Agentic Systems / Core Agent Architecture / Multi-Agent Systems and Design Patterns / Agent Deployment and Services）
+
+      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
+  - type: pdf
+    title: "原文节选：Introduction_to_Agents.pdf（第 14–26 页）"
+    assetKey: pdf/excerpts/Introduction_to_Agents.p14-26.pdf
+

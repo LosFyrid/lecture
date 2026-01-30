@@ -1,43 +1,31 @@
 id: intro
 title: 欢迎 & 学习方式
 summary: |
-  本课用于说明 lecture site 的使用方式，以及本 Track 的学习目标。
+  本课用于说明 lecture site 的使用方式，以及本 Track 的学习目标与“正确的学习姿势”。
 items:
   - type: md
     title: 你会在这里看到什么
     body: |
-      这个 lecture site 主要用于**有组织地展示资料**（PDF / 网页 / 归档），并允许你在资料之间插入解释性文字。
+      这个 lecture site 用于**有组织地展示资料**（PDF / 网页 / 归档），并允许你在资料之间插入解释性文字。
 
       - 支持 Markdown（含表格、任务列表等 GFM）
       - 支持代码块（用于 SOP / 命令 / 配置片段）
+      - 支持 PDF 内联（用于阅读原始材料/节选）
 
       ```bash
       # 示例：查看 MinIO 桶中的对象
       mc ls myminio/lecture/pdf/
       ```
-  - type: md
-    layout: inline
-    body: |
-      这是一段**无框流式插入**的说明（`layout: inline`），更适合把讲解自然地插到资料前后。
-  - type: pdf
-    title: 示例 PDF（请替换为你的对象 key）
-    assetKey: pdf/Introduction_to_Agents.pdf
-  - type: url
-    title: 示例网页（站外打开）
-    url: https://example.com/
-    mode: open
-  - type: url
-    title: 示例网页（尝试站内嵌入，不支持则回退）
-    url: https://www.reddit.com/r/firefox/comments/1f9ccgz/will_not_allow_firefox_to_display_the_page_if/?tl=zh-hans
-    mode: embed
-    archivePdf:
-      title: 示例网页归档（PDF）
-      assetKey: archive/example-com/example.v2025-12-27.pdf
   - type: html
-    title: HTML 片段（可选）
-    note: 适合放一些带样式的提醒/告示；会直接渲染（服务端会做安全清洗，脚本/危险属性会被移除）。
+    title: Track 101 的学习目标（面向研究生）
+    note: 用“研究范式”来学习 agent：看轨迹、看分布、看可复现，而不是只看 demo。
     body: |
       <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px;">
-        <div style="font-weight:600; margin-bottom:6px;">提示</div>
-        <div>如果某些网站无法站内嵌入（CSP/X-Frame-Options），请使用“归档 HTML / 归档 PDF”。</div>
+        <div style="font-weight:600; margin-bottom:6px;">本 Track 的纠偏目标</div>
+        <div style="line-height:1.6;">
+          <div>1) Agent ≠ Chatbot（UI 不是核心）。</div>
+          <div>2) Agent 的核心是：闭环（observe→decide→act→observe）、tools、Context、Evaluation、AgentOps。</div>
+          <div>3) 研究场景同样需要“运行学”：可观测、可评估、可迭代，才能复现与解释。</div>
+        </div>
       </div>
+

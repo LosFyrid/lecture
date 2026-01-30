@@ -1,0 +1,75 @@
+id: evaluation-102-observability
+title: "Observability：让 agent 可解释、可复现、可迭代"
+summary: |
+  没有可观测性就没有研究级 agent：用 logging/tracing/metrics 三大支柱记录轨迹与环境交互；用 OpenTelemetry 等手段回答“它为什么这么做？”并构建质量飞轮。
+items:
+  - type: md
+    title: 学习目标
+    body: |
+      学完本课，你应该能够：
+
+      - 解释“监控（monitoring）”与“可观测性（observability）”的区别。
+      - 说清楚 3 个支柱：logging / tracing / metrics 各自解决什么问题。
+      - 为一次 agent 运行定义你要记录的最小字段集合（用于归因与复现）。
+      - 理解为什么 observability 是 evaluation 与 agentops 的前置条件。
+
+  - type: md
+    title: 从监控到可观测：你要回答的问题变了
+    body: |
+      传统监控常问：“系统挂没挂？延迟高不高？”
+
+      agent 的核心问题是：“**为什么它会这么做？**”
+
+      - 同一个输入可能产生不同轨迹
+      - 失败可能来自工具、上下文、策略或环境变化
+      - 没有轨迹数据，就无法归因；无法归因，就无法改进；无法改进，就无法建立研究结论
+
+  - type: md
+    title: 三大支柱：Logging / Tracing / Metrics
+    body: |
+      1) **Logging（日志）**：记录每一步发生了什么  
+         - 推荐结构化日志：request/response、tool call、关键决策点、错误与重试
+
+      2) **Tracing（追踪）**：把一次任务的完整链路串起来  
+         - 多步、多工具、多 agent 场景里，trace 是你“复盘一条轨迹”的入口
+
+      3) **Metrics（指标）**：把日志与追踪汇总为可监测信号  
+         - 成功率、成本（token/latency）、错误率、漂移信号、回归趋势
+
+  - type: html
+    title: 最小“研究级”记录字段（建议你从这开始）
+    note: 目标是“能复现与归因”，而不是记录一切。
+    body: |
+      <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
+        <div style="font-weight:600; margin-bottom:6px;">一次 agent run 至少应记录</div>
+        <div> - 输入：任务目标、约束、用户上下文（脱敏后）。</div>
+        <div> - 版本：模型版本、prompt/system instructions 版本、tool 版本、检索索引版本。</div>
+        <div> - 轨迹：每步的（选择的 tool、参数、结果摘要、错误/重试）。</div>
+        <div> - 关键输出：最终回答 + 证据引用（provenance）。</div>
+        <div> - 评估：本次 run 的评分（自动指标 + judge/hitl）。</div>
+      </div>
+
+  - type: md
+    title: Quality Flywheel：把观测与评估变成持续改进
+    body: |
+      白皮书给出的核心观点之一：
+
+      - observability 提供事实数据（logs/traces/metrics）
+      - evaluation 把事实变成可比较的质量信号（分数/指标/错误类型）
+      - 人类/用户反馈提供高价值监督信号
+
+      → 最终形成一个“质量飞轮”：每次迭代都更可控、更可解释，而不是“改 prompt 看运气”。
+
+  - type: md
+    layout: inline
+    body: |
+      原文节选建议：
+
+      - 源 PDF：`Agent Quality.pdf`
+      - 建议裁剪页码：第 **31–47** 页（对应章节：Observability / logging-tracing-metrics / actionable insights / quality flywheel）
+
+      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
+  - type: pdf
+    title: "原文节选：Agent Quality（第 31–47 页）"
+    assetKey: pdf/excerpts/Agent_Quality.p31-47.pdf
+

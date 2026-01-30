@@ -1,0 +1,83 @@
+id: agents-101-mental-model
+title: "Agent 心智模型：闭环系统，而不是 Chatbot"
+summary: |
+  建立不过时的 agent 直觉：把 agent 看成“LLM + tools + 编排层 + 环境反馈”的闭环系统；理解为什么 agent 的评估单位是 trajectory（轨迹）。
+items:
+  - type: md
+    title: 学习目标
+    body: |
+      学完本课，你应该能够：
+
+      - 用一句话给出你认可的 **agent 最小定义**（并解释 agent 与 chatbot/workflow 的边界）。
+      - 画出（或口述）agent 的闭环：**observe → decide → act → observe**。
+      - 解释为什么“只看最终回答”不足以评估 agent（必须看 trajectory）。
+      - 把一个科研任务拆成：目标、约束、tools、上下文输入、可观测信号（logs/traces/metrics）。
+
+  - type: md
+    title: 关键心智模型（你应该记住的版本）
+    body: |
+      推荐的最小定义：
+
+      > **agent = LM/LLM（推理） + tools（行动/访问外部世界） + orchestration（编排与状态控制） + 环境反馈闭环**
+
+      这一定义强调两点：
+
+      1) **LLM 不是 agent**：LLM 是“推理大脑”；agent 是把 LLM 放进系统里后的整体能力。  
+      2) **闭环是关键**：agent 的行为是多步、可分叉的；它会根据工具结果与环境变化不断更新下一步。
+
+      一个好用的拆解表：
+
+      | 组件 | 你可以把它想成 | 你在研究/开发里需要关注什么 |
+      |---|---|---|
+      | Model（LLM/LM） | 推理与生成 | 能力边界、随机性、温度/采样、幻觉风险 |
+      | Tools | “手”和“眼睛” | 输入输出 schema、错误语义、权限边界、结构化结果 |
+      | Orchestration | 控制系统/策略 | 规划、路由、重试、澄清问题、停止条件、状态机 |
+      | Environment | 真实世界 | 动态性、不可控性、延迟/失败、数据漂移 |
+
+  - type: html
+    title: 常见误区（需要在 101 阶段纠偏）
+    note: 如果你在做 agent(for science) 研究，这些误区会让你把时间花在“错误的问题”上。
+    body: |
+      <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
+        <div style="font-weight:600; margin-bottom:6px;">误区 1：Agent = Chatbot</div>
+        <div>聊天只是交互界面；agent 的关键是：自主分解任务 + 调用 tools + 多步 trajectory。</div>
+        <div style="height:10px;"></div>
+
+        <div style="font-weight:600; margin-bottom:6px;">误区 2：Agent = 写更长的 prompt</div>
+        <div>prompt 很重要，但长期可靠性来自：Context 管理、工具接口、评估与可观测闭环（而不是“加点咒语”）。</div>
+        <div style="height:10px;"></div>
+
+        <div style="font-weight:600; margin-bottom:6px;">误区 3：Agent = 固定 workflow</div>
+        <div>workflow 可以自动化，但 agent 的难点在于：面对不确定环境（工具失败、信息缺失、用户意图含糊）仍能自适应并可解释。</div>
+      </div>
+
+  - type: md
+    title: 用科研任务快速落地这个心智模型
+    body: |
+      以“科研助理 agent”为例，一个典型闭环可能是：
+
+      1) 观察：读用户目标（例如“给出某体系的候选反应路径并给出参考文献”）  
+      2) 决策：规划子任务（检索 → 归纳 → 建模 → 验证 → 写报告）  
+      3) 行动：调用 tools（文献检索、数据库查询、运行代码/仿真、读取实验记录）  
+      4) 观察：读取 tool results，更新假设与下一步  
+      5) 重复直到：完成 / 失败可解释 / 需要人介入（HITL）
+
+      你可以立刻做一个 5 分钟练习（写在你的笔记里即可）：
+
+      - 选一个你熟悉的科研小任务（例如“查某材料带隙并给出来源”）
+      - 写出 3 个 tools（查询数据库、读论文、跑一个小脚本）
+      - 写出 3 个可观测信号（成功率、tool error rate、平均步数/成本）
+
+  - type: md
+    layout: inline
+    body: |
+      原文节选建议（用于对照英文白皮书的表达与图示）：
+
+      - 源 PDF：`Introduction_to_Agents.pdf`
+      - 建议裁剪页码：第 **6–13** 页（对应章节：From Predictive AI to Autonomous Agents / Introduction to AI Agents / The Agentic Problem-Solving Process）
+
+      你裁剪后上传到 S3，再把下面 `assetKey` 改成你的对象 key。
+  - type: pdf
+    title: "原文节选：Introduction_to_Agents.pdf（第 6–13 页）"
+    assetKey: pdf/excerpts/Introduction_to_Agents.p6-13.pdf
+

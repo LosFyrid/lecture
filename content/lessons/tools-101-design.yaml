@@ -1,0 +1,84 @@
+id: tools-101-design
+title: "Tools 101：让 agent 接触事实并“动手做事”"
+summary: |
+  解释 tool 是什么、为什么 tool 决定 agent 的上限与下限；给出面向科研场景的 tool 设计 checklist（输入输出 schema、结构化结果、错误语义、provenance）。
+items:
+  - type: md
+    title: 学习目标
+    body: |
+      学完本课，你应该能够：
+
+      - 区分两类工具：**retrieval/grounding**（获取事实）与 **actions**（对世界产生作用）。
+      - 解释 tool calling / function calling 的系统意义：它让 agent 的“下一步”依赖真实环境反馈。
+      - 为一个科研工具写出最小“agent-friendly”接口：参数、输出结构、错误语义、返回大小控制。
+
+  - type: md
+    title: Tool 是什么（推荐定义）
+    body: |
+      在 LLM 应用里：
+
+      > tool = agent 可调用的外部能力（函数/API/服务/脚本/检索器/执行器），用于完成“模型本身做不到或不可靠”的事情。
+
+      工具大体分两类：
+
+      - **让模型“知道”**：检索外部事实（论文、数据库、实验记录、日志、网页）
+      - **让模型“做到”**：执行动作（跑代码/仿真、写入 ELN、提交 HPC 作业、调用仪器 API）
+
+      对科研场景，建议你默认认为：
+      - “事实”应来自工具（grounding），而不是来自模型的记忆；
+      - “动作”必须受控（权限、校验、预算、人工确认）。
+
+  - type: md
+    title: Tool 设计 checklist（高频踩坑点）
+    body: |
+      下面这些点，直接决定你的 agent 是否可调试、可评估、可复现：
+
+      1) **描述动作语义，而不是实现细节**  
+         - 好：`query_material_property(material_id, property, source)`  
+         - 不好：暴露一堆 REST 路径与后端字段名（模型会用错，也更难迁移）
+      2) **输出要简洁且结构化**  
+         - 返回 JSON/表格字段；长文本只返回摘要 + 引用位置（否则 Context 被噪声淹没）
+      3) **参数校验（validation）要明确**  
+         - 单位/范围/枚举值校验；否则模型会生成“看似合理但无效”的参数
+      4) **错误要可行动（actionable）**  
+         - 错误信息要告诉 agent：是重试？换参数？需要人介入？还是权限不足？
+      5) **带上 provenance（来源）**（科研刚需）  
+         - 数据来源、版本、时间戳、查询条件、误差范围（如有）
+
+  - type: html
+    title: for science 的工具化例子（把实验室/计算环境当成 tool）
+    note: 重点不是“接更多 API”，而是把科研流程变成可控的、可追溯的系统能力。
+    body: |
+      <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
+        <div style="font-weight:600; margin-bottom:6px;">科研常见 tools（例）</div>
+        <div> - 文献检索：Scholar/semantic search/内部知识库（返回 citation + 摘要 + 证据片段）。</div>
+        <div> - 数据库查询：Materials Project / PubChem / PDB（返回结构化字段 + 来源）。</div>
+        <div> - 计算执行：DFT/MD 提交与查询（返回 job_id + 参数 + 状态 + 结果摘要）。</div>
+        <div> - 数据处理：Python/R pipeline（返回产物路径 + 统计摘要 + 可视化链接）。</div>
+        <div> - 实验记录：ELN 读写（写入需强 schema + 权限 + 审计）。</div>
+      </div>
+
+  - type: md
+    title: 小练习（写一个“可评估”的 tool）
+    body: |
+      任选一个小工具，写出你认为“对 agent 友好”的接口与返回：
+
+      - 例：`lookup_bandgap(material_id: str) -> {value_eV, method, temperature_K, source, source_url, retrieved_at}`
+
+      你在后续 Evaluation 课程会用到这些字段做：
+      - 引用准确性评估（source 是否真实）
+      - 成本/效率评估（tool 调用次数、耗时）
+      - 失败归因（错误类型分布）
+
+  - type: md
+    layout: inline
+    body: |
+      原文节选建议：
+
+      - 源 PDF：`Agent Tools & Interoperability with Model Context Protocol (MCP).pdf`
+      - 建议裁剪页码：第 **7–19** 页（对应章节：Tools and tool calling / Types of tools / Built-in tools / Agent Tools / Best Practices）
+
+      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
+  - type: pdf
+    title: "原文节选：Tools & MCP（第 7–19 页）"
+    assetKey: pdf/excerpts/Agent_Tools_and_MCP.p7-19.pdf

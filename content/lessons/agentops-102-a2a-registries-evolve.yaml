@@ -1,0 +1,89 @@
+id: agentops-102-a2a-registries-evolve
+title: "AgentOps（下）：Observe/Act/Evolve + A2A + Registry（必修）"
+summary: |
+  上线后如何管理 agent：observe（感觉系统）/ act（控制杠杆）/ evolve（受控改进）；并学习学界与工程都必须掌握的互操作与复用基础：A2A、MCP 协同与 registry 架构。
+items:
+  - type: md
+    title: 学习目标
+    body: |
+      学完本课，你应该能够：
+
+      - 描述上线后的三件事：Observe / Act / Evolve。
+      - 列出运行时需要管理的健康指标：性能、成本、规模、错误率、漂移信号。
+      - 解释 A2A（Agent-to-Agent）解决什么问题，以及它与 MCP 的关系。
+      - 理解为什么 registry（发现/版本/治理）在 multi-agent 生态中是必须组件（而不是企业特有需求）。
+
+  - type: md
+    title: In-production：Observe / Act / Evolve
+    body: |
+      可以把 agent 上线后的管理抽象成三类能力：
+
+      - **Observe（观察）**：日志、追踪、指标；回答“发生了什么？为什么？”
+      - **Act（控制）**：开关某个 tool、降级路径、限流/预算、回滚版本
+      - **Evolve（演化）**：把线上失败样本与反馈转成可控的改进，并回到 evaluation gate
+
+      研究映射：
+      - Observe = 实验记录系统（过程可追踪）
+      - Act = 实验安全闸门（能停、能回滚、能限制成本）
+      - Evolve = 迭代研究（从失败样本里学，但必须可重复验证）
+
+  - type: md
+    title: Managing system health（性能 / 成本 / 规模）
+    body: |
+      agent 的成本与延迟天然波动（因为轨迹长度与 tool 交互不固定），因此需要：
+
+      - **预算与限额**：token budget、tool call budget、wall-clock timeout
+      - **缓存与复用**：对确定性/可缓存的工具结果做缓存（降低成本与抖动）
+      - **并发与排队**：多 agent / 多工具调用的资源管理（避免雪崩）
+
+  - type: html
+    title: Managing risk：安全响应（研究也需要）
+    note: 这里不展开企业合规体系，只保留“通用且必要”的应急与安全边界。
+    body: |
+      <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
+        <div style="font-weight:600; margin-bottom:6px;">你至少要有的风险应对能力</div>
+        <div> - 快速关停高风险 tools（kill switch）。</div>
+        <div> - 回滚到已知稳定版本（模型/prompt/tool/配置）。</div>
+        <div> - 对异常进行归因（来自哪条轨迹、哪个 tool、哪类输入）。</div>
+        <div> - 把事故样本纳入 regression set（避免复发）。</div>
+      </div>
+
+  - type: md
+    title: A2A（Agent-to-Agent）：multi-agent 生态的“协议层”
+    body: |
+      当 multi-agent 成为常态，你会遇到“agent 如何复用、如何通信、如何协作”的问题。
+
+      - A2A 的核心动机：**让 agent 之间有标准化的交互方式**（可复用、可组合、可治理）
+      - 这与 MCP 的互补关系：
+        - MCP 更关注 “agent ↔ tools/resources”的标准化
+        - A2A 更关注 “agent ↔ agent”的标准化
+
+      对学界的意义：
+      - 研究系统越来越像“组件化生态”：检索 agent、分析 agent、验证 agent、写作 agent……
+      - 没有标准协议与版本治理，你很难复现别人结果，也很难复用别人组件。
+
+  - type: md
+    title: Registry：为什么是必须（不是企业专属）
+    body: |
+      registry 解决的是“发现与版本化”的系统问题：
+
+      - 你如何找到可用的 agent / tool？
+      - 你如何知道它的版本、能力、限制与权限边界？
+      - 你如何在升级时避免破坏下游（兼容性）？
+
+      在 multi-agent/科研生态中，这些问题同样存在：  
+      研究复现需要“明确版本与依赖”，否则结果不可比较。
+
+  - type: md
+    layout: inline
+    body: |
+      原文节选建议：
+
+      - 源 PDF：`Prototype to Production.pdf`
+      - 建议裁剪页码：第 **19–40** 页（对应章节：Operations in-Production / Observe-Act-Evolve / Beyond Single-Agent / A2A / A2A & MCP / Registry architectures / AgentOps lifecycle）
+
+      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
+  - type: pdf
+    title: "原文节选：Prototype to Production（第 19–40 页）"
+    assetKey: pdf/excerpts/Prototype_to_Production.p19-40.pdf
+

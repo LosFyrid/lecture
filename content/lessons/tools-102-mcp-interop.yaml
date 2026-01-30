@@ -1,0 +1,92 @@
+id: tools-102-mcp-interop
+title: "MCP：解决 N×M 集成地狱的工具互操作协议"
+summary: |
+  理解为什么需要 MCP（Model Context Protocol）这样的标准：统一 tools 的发现、定义、调用、结果与错误语义；为 multi-agent / 多工具生态提供可复用的基础设施。
+items:
+  - type: md
+    title: 学习目标
+    body: |
+      学完本课，你应该能够：
+
+      - 解释 “N×M 集成问题” 是什么，以及它为什么会阻碍工具生态复用。
+      - 用自己的话描述 MCP 的三类角色：Host / Client / Server。
+      - 说清楚 MCP 关心的最小事实：tool definition / request / result / error。
+      - 说明为什么“结构化 tool results”是可维护性的关键（与 Evaluation/AgentOps 直接相关）。
+
+  - type: md
+    title: N×M 集成问题：为什么没有标准就会卡死
+    body: |
+      当你同时拥有：
+
+      - N 种 agent runtime / 框架（不同语言、不同厂商、不同调用风格）
+      - M 种工具服务（检索、数据库、计算、仪器、企业系统……）
+
+      如果每个组合都手工集成，就会变成 **N×M** 的成本爆炸：
+
+      - 工具难复用：A 框架能用的工具，B 框架不能用
+      - 评估难统一：不同框架的 tool call 记录方式不同，导致轨迹不可比
+      - 治理难扩展：权限、审计、版本管理各搞一套
+
+      MCP 的核心动机：**让工具“一次接入，多处可用”**，把“互操作”从项目级变成基础设施级。
+
+  - type: md
+    title: MCP 结构：Host / Client / Server
+    body: |
+      MCP 把系统角色拆成三层：
+
+      - **Host**：承载 agent 的应用或运行环境（IDE、桌面应用、agent runtime 等）
+      - **Client**：Host 内负责与 MCP Server 通信的组件
+      - **Server**：提供 tools/resources 的服务端（本地进程或远程服务）
+
+      你可以把它理解成：“agent 不直接集成所有工具，而是通过 MCP 统一发现与调用”。
+
+  - type: md
+    title: MCP 的关键抽象：定义、调用、结果、错误
+    body: |
+      对 Track101 来说，抓住 4 个最关键的对象就够了：
+
+      1) **Tool Definition**：工具能做什么？输入参数 schema 是什么？（让模型能正确发起调用）
+      2) **Request**：一次调用的参数（最好可追踪、可审计）
+      3) **Result**：返回内容（建议结构化）+ 可选文本解释
+      4) **Error**：失败类型与可行动的错误信息（决定 agent 能否自纠正）
+
+      研究/工程上的关键联系：
+      - **结构化结果** → 更容易写 evaluation、做回归、做统计分析（成功率/成本/错误类型分布）
+      - **可追踪请求与错误** → 更容易做可观测性与 debug（“为什么它这么做？”）
+
+  - type: html
+    title: 本 Track 对 MCP 安全/治理的边界（按你给的取舍）
+    note: Track101 保留“研究也通用且必要”的安全点；企业级治理细节放到后续更高阶 track。
+    body: |
+      <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
+        <div style="font-weight:600; margin-bottom:6px;">本 Track 会讲清楚的安全点</div>
+        <div> - tool schema/描述本身也可能成为攻击面（例如恶意 tool 定义诱导模型）。</div>
+        <div> - 输出可能泄漏敏感信息：必须定义数据边界与最小权限。</div>
+        <div> - 任何“能执行动作”的 tool 都应有闸门：校验、预算、必要时人工确认（HITL）。</div>
+        <div style="height:10px;"></div>
+        <div style="font-weight:600; margin-bottom:6px;">不在 Track101 展开的内容</div>
+        <div> - 大规模 fleet 的复杂治理系统、复杂合规流程、企业流量治理等细节。</div>
+      </div>
+
+  - type: md
+    title: for science 的意义：把实验室工具链做成“可插拔生态”
+    body: |
+      如果你把科研环境当作一个工具生态（文献/数据库/计算/仪器/ELN），那么：
+
+      - MCP 让工具更容易复用与共享（跨项目、跨团队、跨 runtime）
+      - multi-agent 更容易落地：不同角色 agent 可以通过标准化工具接口协作
+      - Evaluation/AgentOps 更容易统一：工具调用与结果有一致的结构与日志/追踪入口
+
+  - type: md
+    layout: inline
+    body: |
+      原文节选建议：
+
+      - 源 PDF：`Agent Tools & Interoperability with Model Context Protocol (MCP).pdf`
+      - 建议裁剪页码：第 **20–36** 页（对应章节：Understanding the Model Context Protocol / Hosts-Clients-Servers / JSON-RPC & primitives / Tool definition & results / Governance foundations）
+
+      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
+  - type: pdf
+    title: "原文节选：Tools & MCP（第 20–36 页）"
+    assetKey: pdf/excerpts/Agent_Tools_and_MCP.p20-36.pdf
+

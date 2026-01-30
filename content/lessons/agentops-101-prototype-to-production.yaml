@@ -1,0 +1,77 @@
+id: agentops-101-prototype-to-production
+title: "AgentOps（上）：从 Prototype 到可信系统（Evaluation Gate + CI/CD + 安全上线）"
+summary: |
+  把 agent 当成会变化的系统来发布：用 evaluation 作为质量闸门（gate），用 CI/CD 自动化发布与回归，用 safe rollout 降低风险；强调“能跑”不等于“可信”。
+items:
+  - type: md
+    title: 学习目标
+    body: |
+      学完本课，你应该能够：
+
+      - 解释为什么 agent 的“最后一公里”成本很高（80% effort 在可靠性、验证、可观测与安全）。
+      - 把 evaluation 变成质量闸门（quality gate），而不是上线前“随便跑跑”。
+      - 描述一条最小 agent CI/CD pipeline：评估 → 发布 → 回滚。
+      - 理解 safe rollout 的基本策略（shadow / canary / feature flags / HITL）。
+
+  - type: md
+    title: 为什么从 Prototype 到 Production 很难（研究同样如此）
+    body: |
+      agent 一旦能调用 tools，它的失败不再只是“答错题”，而可能是“做错事”：
+
+      - 误用工具导致数据被覆盖、作业被误提交、仪器被误触发
+      - 成本与延迟不可预测（多步轨迹导致 token/时间波动）
+      - 线上环境变化导致行为漂移（工具、网页、数据库版本变化）
+
+      对科研来说，“Production”不一定指企业上线，而是：
+      - 可复现、可追踪、可解释、可控迭代
+
+  - type: md
+    title: Evaluation 作为质量闸门（Quality Gate）
+    body: |
+      核心原则：**任何会影响行为的变更，都必须过评估闸门**。
+
+      变更来源包括但不限于：
+      - 模型版本、参数（temperature/top_p）
+      - prompt/system instructions
+      - tools（schema、实现、权限）
+      - retrieval 索引/数据快照
+      - memory 策略
+
+      最小 gate（研究起步版）：
+      - 在关键任务集上：effectiveness 不退步、成本不爆炸、主要失败模式不恶化
+
+  - type: md
+    title: 自动化 CI/CD：把 agent 也当成“可发布的软件”
+    body: |
+      建议把 CI/CD 理解成“重复实验流程的自动化”：
+
+      - 每次变更都自动运行 evaluation harness
+      - 产出对比报告（新版本 vs 基线）
+      - 达标才发布；不达标就阻断（fail the build）
+      - 任何发布都可回滚（模型/prompt/tool/配置）
+
+  - type: html
+    title: Safe Rollout（安全上线）的最低配置
+    note: 对“能执行动作”的 agent，rollout 策略本身就是安全机制的一部分。
+    body: |
+      <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
+        <div style="font-weight:600; margin-bottom:6px;">推荐从小到大的上线路径</div>
+        <div>1) Shadow / dry-run：先只给建议，不执行真实动作。</div>
+        <div>2) Canary：小范围启用（小流量、小用户、小项目）。</div>
+        <div>3) Feature flags：可一键关闭某个 tool 或某条路径。</div>
+        <div>4) HITL：高风险 tool 默认人工确认。</div>
+      </div>
+
+  - type: md
+    layout: inline
+    body: |
+      原文节选建议：
+
+      - 源 PDF：`Prototype to Production.pdf`
+      - 建议裁剪页码：第 **5–18** 页（对应章节：Abstract / Journey to Production / Evaluation as a Quality Gate / CI/CD / Safe rollout / Security from the start）
+
+      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
+  - type: pdf
+    title: "原文节选：Prototype to Production（第 5–18 页）"
+    assetKey: pdf/excerpts/Prototype_to_Production.p5-18.pdf
+
