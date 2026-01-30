@@ -9,7 +9,7 @@ spec:
       namespace: gateway
       sectionName: https
   hostnames:
-    - lecture.pic-aichem.online
+    - learning.pic-aichem.online
   rules:
     - matches:
         - path:
