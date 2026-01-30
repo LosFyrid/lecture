@@ -20,7 +20,7 @@ spec:
       serviceAccountName: lecture
       containers:
         - name: web
-          image: lecture-web:latest
+          image: harbor.pic-aichem.online/sunyk/lecture-web:latest
           imagePullPolicy: Always
           ports:
             - name: web
@@ -39,7 +39,7 @@ spec:
             periodSeconds: 20
 
         - name: api
-          image: lecture-api:latest
+          image: harbor.pic-aichem.online/sunyk/lecture-api:latest
           imagePullPolicy: Always
           env:
             - name: LISTEN_ADDR
