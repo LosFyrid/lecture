@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: lecture
-  namespace: lecture
+  namespace: custom-app
   labels:
     app.kubernetes.io/name: lecture
 spec:
