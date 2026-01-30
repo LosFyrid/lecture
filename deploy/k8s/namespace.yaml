@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lecture
+  labels:
+    # Allow HTTPRoutes in this namespace to attach to `gateway/core-service-gateway`.
+    gateway.pic-aichem.online/core-service-gateway: "true"

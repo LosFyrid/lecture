@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lecture
+  namespace: lecture
+  labels:
+    app.kubernetes.io/name: lecture
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lecture
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lecture
+    spec:
+      imagePullSecrets:
+        - name: harbor-auth
+      serviceAccountName: lecture
+      containers:
+        - name: web
+          image: lecture-web:latest
+          imagePullPolicy: Always
+          ports:
+            - name: web
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: web
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: web
+            initialDelaySeconds: 30
+            periodSeconds: 20
+
+        - name: api
+          image: lecture-api:latest
+          imagePullPolicy: Always
+          env:
+            - name: LISTEN_ADDR
+              value: ":8080"
+
+            # SeaweedFS S3 gateway endpoint.
+            # This can be a full URL (http[s]://host:port) or host:port.
+            - name: MINIO_ENDPOINT
+              value: "http://seaweedfs-filer.core-storage.svc.cluster.local:8333"
+            - name: MINIO_BUCKET
+              value: "lecture"
+            - name: MINIO_REGION
+              value: "us-east-1"
+
+            - name: ASSET_CACHE_CONTROL
+              value: ""
+            - name: ASSET_CACHE_CONTROL_DEFAULT
+              value: "public, max-age=3600"
+            - name: ASSET_CACHE_CONTROL_IMMUTABLE
+              value: "public, max-age=31536000, immutable"
+            - name: ASSET_ALLOWED_PREFIXES
+              value: "pdf/,archive/"
+
+            # S3 credentials for SeaweedFS.
+            - name: MINIO_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: lecture-s3
+                  key: accessKeyId
+            - name: MINIO_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: lecture-s3
+                  key: secretAccessKey
+          ports:
+            - name: api
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: api
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: api
+            initialDelaySeconds: 10
+            periodSeconds: 20

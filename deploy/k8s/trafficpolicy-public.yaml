@@ -1,0 +1,19 @@
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: lecture-public
+  namespace: lecture
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: lecture
+
+  # Lecture is intended to be publicly accessible; do not apply the global Gateway extAuth here.
+  extAuth:
+    disable: {}
+
+  # Assets (PDF/html archives) can be slow/large; keep upstream connections alive.
+  timeouts:
+    request: 1h
+    streamIdle: 1h

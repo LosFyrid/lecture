@@ -1,7 +1,0 @@
-apiVersion: v2
-name: lecture
-description: Next.js lecture site + Go asset gateway (MinIO)
-type: application
-version: 0.1.0
-appVersion: "0.1.0"
-
