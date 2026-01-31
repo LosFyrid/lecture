@@ -8,11 +8,11 @@ items:
     body: |
       引入 memory 的收益很直观：长任务、跨会话、一致性与个性化。
 
-      但它也会引入一种“研究最怕的失败模式”：
+      但它也会引入新的“失败模式”：
 
       - **记错/记歪了，但看起来合理** → 污染后续推理与结论
       - **检索错了** → 把不相关的旧信息当成事实，引入隐蔽偏差
-      - **跨人/跨项目泄漏** → 数据与隐私风险（科研环境同样严重）
+      - **跨人/跨项目泄漏** → 数据与隐私风险
 
       所以 memory 不能只“做出来”，必须“测出来、管起来”。
 
@@ -60,7 +60,7 @@ items:
 
   - type: html
     title: Memory 的“生产注意事项”在科研里意味着什么
-    note: 这不是企业专属：它解决的是“热路径阻塞”和“管道故障影响主任务”的系统性问题。
+    note: 它解决的是“热路径阻塞”和“管道故障影响主任务”的系统性问题。
     body: |
       <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
         <div style="font-weight:600; margin-bottom:6px;">关键思想：把 memory 管道从主逻辑中分离（异步/非阻塞）</div>
@@ -87,15 +87,6 @@ items:
       建议把 memory 视为一类 tool：  
       - write/retrieve 都要有权限边界、校验与审计（与 AgentOps 思路一致）。
 
-  - type: md
-    layout: inline
-    body: |
-      原文节选建议（案例阅读）：
-
-      - 源 PDF：`Context Engineering_ Sessions & Memory.pdf`
-      - 建议裁剪页码：第 **65–72** 页（对应章节：Testing and Evaluation / Production considerations for Memory / Privacy and security risks / Conclusion）
-
-      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
   - type: pdf
     title: "原文节选：Context Engineering（第 65–72 页，案例）"
     assetKey: pdf/excerpts/Context_Engineering.p65-72.pdf

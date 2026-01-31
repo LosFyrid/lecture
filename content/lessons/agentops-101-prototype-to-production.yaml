@@ -62,15 +62,6 @@ items:
         <div>4) HITL：高风险 tool 默认人工确认。</div>
       </div>
 
-  - type: md
-    layout: inline
-    body: |
-      原文节选建议：
-
-      - 源 PDF：`Prototype to Production.pdf`
-      - 建议裁剪页码：第 **5–18** 页（对应章节：Abstract / Journey to Production / Evaluation as a Quality Gate / CI/CD / Safe rollout / Security from the start）
-
-      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
   - type: pdf
     title: "原文节选：Prototype to Production（第 5–18 页）"
     assetKey: pdf/excerpts/Prototype_to_Production.p5-18.pdf

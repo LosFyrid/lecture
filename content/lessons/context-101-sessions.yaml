@@ -8,7 +8,7 @@ items:
     body: |
       学完本课，你应该能够：
 
-      - 解释 Context Engineering 的核心：**决定哪些信息进入模型输入、以什么结构进入、何时更新/压缩/检索补充**。
+      - 解释 Context Engineering 的核心：**决定哪些信息进入模型输入、以什么结构进入、何时以什么方法更新/压缩/补充**。
       - 说清楚 session 的作用：让 LLM（天然无状态）在多轮/长任务中保持连续性。
       - 列出长上下文管理的关键 tradeoffs：成本、噪声累积、关键信息丢失风险。
       - 理解 multi-agent 下 session 的额外难点：共享状态、冲突、污染、互操作。
@@ -21,7 +21,7 @@ items:
       因此 agent 要“记得住、做得长、保持一致”，关键不是把 prompt 写得更长，而是：
 
       - **动态组装**：system instructions + 任务状态 + 对话历史 + 检索信息 + 关键约束
-      - **按需压缩**：长对话一定会超 context window，需要摘要/裁剪/分层保留
+      - **按需压缩**：长对话一定会超 context window，需要摘要/裁剪/分层保留。不超 context window 也可能发生上下文腐败，导致指令失效。
       - **降低噪声**：更多上下文不一定更好；错误/幻觉也会被带入并放大
 
       你可以用一个比喻记住它（来自白皮书）：  
@@ -68,19 +68,8 @@ items:
 
       - **分层保留**：把信息分为“必须不丢/可摘要/可丢弃”
       - **摘要可追溯**：摘要需要指向原始 evidence（为后续 provenance 做准备）
-      - **按需检索补充**：不要把所有东西塞进上下文；需要时检索，再做压缩
+      - **按需检索补充**：不要把所有东西塞进上下文；需要时可以检索展开，再做压缩（渐进式披露）
 
-      对科研任务的建议：把“单位、数据来源、实验条件、样品编号”等当作**硬约束**，绝不能被摘要丢掉。
-
-  - type: md
-    layout: inline
-    body: |
-      原文节选建议：
-
-      - 源 PDF：`Context Engineering_ Sessions & Memory.pdf`
-      - 建议裁剪页码：第 **6–26** 页（对应章节：Context Engineering / Sessions / multi-agent sessions / interoperability / long context tradeoffs）
-
-      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
   - type: pdf
     title: "原文节选：Context Engineering（第 6–26 页）"
     assetKey: pdf/excerpts/Context_Engineering.p6-26.pdf

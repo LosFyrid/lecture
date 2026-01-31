@@ -55,16 +55,15 @@ items:
       - **可追踪请求与错误** → 更容易做可观测性与 debug（“为什么它这么做？”）
 
   - type: html
-    title: 本 Track 对 MCP 安全/治理的边界（按你给的取舍）
-    note: Track101 保留“研究也通用且必要”的安全点；企业级治理细节放到后续更高阶 track。
+    title: 本 Track 对 MCP 安全/治理的边界
     body: |
       <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
         <div style="font-weight:600; margin-bottom:6px;">本 Track 会讲清楚的安全点</div>
         <div> - tool schema/描述本身也可能成为攻击面（例如恶意 tool 定义诱导模型）。</div>
-        <div> - 输出可能泄漏敏感信息：必须定义数据边界与最小权限。</div>
+        <div> - 输出可能泄漏敏感信息：可能需要定义数据边界与最小权限。</div>
         <div> - 任何“能执行动作”的 tool 都应有闸门：校验、预算、必要时人工确认（HITL）。</div>
         <div style="height:10px;"></div>
-        <div style="font-weight:600; margin-bottom:6px;">不在 Track101 展开的内容</div>
+        <div style="font-weight:600; margin-bottom:6px;">更多企业级细节（见原始  PDF ）：</div>
         <div> - 大规模 fleet 的复杂治理系统、复杂合规流程、企业流量治理等细节。</div>
       </div>
 
@@ -77,15 +76,6 @@ items:
       - multi-agent 更容易落地：不同角色 agent 可以通过标准化工具接口协作
       - Evaluation/AgentOps 更容易统一：工具调用与结果有一致的结构与日志/追踪入口
 
-  - type: md
-    layout: inline
-    body: |
-      原文节选建议：
-
-      - 源 PDF：`Agent Tools & Interoperability with Model Context Protocol (MCP).pdf`
-      - 建议裁剪页码：第 **20–36** 页（对应章节：Understanding the Model Context Protocol / Hosts-Clients-Servers / JSON-RPC & primitives / Tool definition & results / Governance foundations）
-
-      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
   - type: pdf
     title: "原文节选：Tools & MCP（第 20–36 页）"
     assetKey: pdf/excerpts/Agent_Tools_and_MCP.p20-36.pdf

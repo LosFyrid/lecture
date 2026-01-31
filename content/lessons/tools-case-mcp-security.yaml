@@ -1,7 +1,7 @@
 id: tools-case-mcp-security
 title: "案例分析：MCP 的安全风险（Tool Shadowing / Confused Deputy）"
 summary: |
-  MCP 解决互操作，但也引入新的攻击面：tool 定义本身、被消费的内容、以及“通过工具间接越权”的 Confused Deputy 问题。本课用白皮书的风险章节与 appendix 案例，建立你对 MCP 安全边界的研究/工程直觉。
+  选读：MCP 解决互操作，但也引入新的攻击面：tool 定义本身、被消费的内容、以及“通过工具间接越权”的 Confused Deputy 问题。本课用白皮书的风险章节与 appendix 案例，建立你对 MCP 安全边界的研究/工程直觉。
 items:
   - type: md
     title: 学习目标（案例分析）
@@ -22,7 +22,7 @@ items:
       - tool results 会进入 Context（影响决策轨迹）
       - multi-agent / A2A 生态会叠加更多“组合路径”
 
-      所以风险也会被放大：你不需要做企业安全，**但你需要理解系统级的安全边界**，否则研究系统会出现不可控的越权、泄漏、污染与不可复现。
+      所以风险也会被放大：不一定需要做企业安全，**但需要理解系统级的安全边界**，否则研究系统会出现不可控的越权、泄漏、污染与不可复现。
 
   - type: md
     title: 风险面 1：Tool Shadowing / 恶意 tool 定义
@@ -44,7 +44,7 @@ items:
       - tool 返回的网页/文档/代码片段可能包含对模型的诱导指令
       - 如果你把这些内容原封不动塞进 Context，模型可能把它当成高优先级指令执行
 
-      最小缓解（研究也通用）：
+      缓解方案：
       - 将“外部内容”与“系统指令/策略”严格分层（分区/标注）
       - 对高风险内容做过滤/净化（最小化注入面）
       - 对高风险 tool 的动作增加确认闸门（HITL）
@@ -56,14 +56,14 @@ items:
 
       关键点在于：越权不一定发生在“一个 tool”，而可能发生在“多个 tool 的组合路径”。
 
-      这会直接破坏科研系统的基本要求：
+      这会直接破坏系统的基本要求：
       - 数据隔离（不同项目/不同合作方）
       - 可审计（你需要知道泄漏发生在哪条轨迹）
       - 可回滚（你需要能快速关停与收敛）
 
   - type: html
-    title: 最小防线（研究可用版）
-    note: 不追求企业级合规体系，但要保证系统可控、可追责、可复现。
+    title: 一些关键的考虑因素
+    note: 关于系统可控、可追责、可复现。
     body: |
       <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
         <div style="font-weight:600; margin-bottom:6px;">建议把 MCP 安全当成“系统设计问题”</div>
@@ -89,15 +89,6 @@ items:
       - 模型会基于语义选择 tool，容易被“看起来合理”的描述绕过
       - 多 agent 叠加后，责任链更复杂（更难归因）
 
-  - type: md
-    layout: inline
-    body: |
-      原文节选建议（案例阅读）：
-
-      - 源 PDF：`Agent Tools & Interoperability with Model Context Protocol (MCP).pdf`
-      - 建议裁剪页码：第 **37–55** 页（对应章节：Performance/Scalability bottlenecks / Critical risks / Security in MCP / Tool shadowing / malicious tool definitions / sensitive information leaks / no scope limits / Appendix: Confused Deputy / The attack / The result / Endnotes）
-
-      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
   - type: pdf
     title: "原文节选：Tools & MCP（第 37–55 页，案例）"
     assetKey: pdf/excerpts/Agent_Tools_and_MCP.p37-55.pdf

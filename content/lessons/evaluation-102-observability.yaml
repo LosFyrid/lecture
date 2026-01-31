@@ -1,7 +1,7 @@
 id: evaluation-102-observability
 title: "Observability：让 agent 可解释、可复现、可迭代"
 summary: |
-  没有可观测性就没有研究级 agent：用 logging/tracing/metrics 三大支柱记录轨迹与环境交互；用 OpenTelemetry 等手段回答“它为什么这么做？”并构建质量飞轮。
+  没有可观测性就没有研究级 agent：用 logging/tracing/metrics 三大支柱记录轨迹与环境交互；用观测性手段回答“它为什么这么做？”并构建质量飞轮。
 items:
   - type: md
     title: 学习目标
@@ -37,11 +37,11 @@ items:
          - 成功率、成本（token/latency）、错误率、漂移信号、回归趋势
 
   - type: html
-    title: 最小“研究级”记录字段（建议你从这开始）
+    title: 可能得记录字段
     note: 目标是“能复现与归因”，而不是记录一切。
     body: |
       <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
-        <div style="font-weight:600; margin-bottom:6px;">一次 agent run 至少应记录</div>
+        <div style="font-weight:600; margin-bottom:6px;">一次 agent run 理想的最小记录</div>
         <div> - 输入：任务目标、约束、用户上下文（脱敏后）。</div>
         <div> - 版本：模型版本、prompt/system instructions 版本、tool 版本、检索索引版本。</div>
         <div> - 轨迹：每步的（选择的 tool、参数、结果摘要、错误/重试）。</div>
@@ -60,15 +60,6 @@ items:
 
       → 最终形成一个“质量飞轮”：每次迭代都更可控、更可解释，而不是“改 prompt 看运气”。
 
-  - type: md
-    layout: inline
-    body: |
-      原文节选建议：
-
-      - 源 PDF：`Agent Quality.pdf`
-      - 建议裁剪页码：第 **31–48** 页（对应章节：Observability / logging-tracing-metrics / actionable insights / quality flywheel / 结论收束）
-
-      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
   - type: pdf
     title: "原文节选：Agent Quality（第 31–48 页）"
     assetKey: pdf/excerpts/Agent_Quality.p31-48.pdf

@@ -9,7 +9,7 @@ items:
       学完本课，你应该能够：
 
       - 使用 “Level 0–4” taxonomy 给你见过的系统分类（并解释分类理由）。
-      - 解释为什么 multi-agent 在学界与科研场景中是必须掌握的方向（不是“花活”）。
+      - 解释为什么 multi-agent 在学界与科研场景中是必须掌握的方向。
       - 列出 multi-agent 的最小设计要素：角色、通信、共享/私有上下文、终止条件、冲突解决。
 
   - type: md
@@ -29,18 +29,18 @@ items:
         引入评估、反馈、仿真等机制，实现系统持续改进（更接近“研究系统”而不仅是“应用”）。
 
       重要提醒（研究取向）：
-      - **Level 越高，研究成本越高**：需要更强的可观测、评估与治理，否则你很难解释结果，更难复现。
+      - **Level 越高，研究成本越高**：需要更强的可观测、评估与治理，否则你很难进行开发并解释结果，更难复现。
 
   - type: md
-    title: Multi-Agent 为什么“必须学”（尤其是学界 / for science）
+    title: Multi-Agent for Science
     body: |
       学界与科研任务的复杂性，天然契合 multi-agent：
 
-      - 复杂任务往往需要 **异质能力**：检索、推理、实验/计算、写作、审稿式批判。把这些塞进一个 prompt 往往不可控。
+      - 复杂任务往往需要 **异质能力**：检索、推理、实验/计算、写作、审稿式批判。把这些塞进一个 prompt 往往不可控。可能出现高耦合、难复用、难管理、难解释的情况。
       - 科研流程本身就是“多角色协作”：提出假设（planner）→ 设计实验（designer）→ 执行与分析（executor）→ 质疑与复核（critic）。
       - multi-agent 提供一种工程化方式，把“研究流程”变成可观测的系统：你可以记录每个角色的输入/输出/决策依据。
 
-      但 multi-agent 也会引入新问题（你需要提前意识到）：
+      但 multi-agent 也会引入新问题：
 
       - **协调成本**：谁负责最终决策？谁写共享状态？如何避免循环对话？
       - **共享上下文的污染**：一个 agent 的错误可能被写入共享上下文，污染整个系统。
@@ -48,7 +48,7 @@ items:
 
   - type: html
     title: 设计提示（最小可行的 multi-agent 方案）
-    note: 不要一上来就 5 个角色。先从“2–3 个角色 + 明确协议”开始。
+    note: 从“2–3 个角色 + 明确协议”开始。
     body: |
       <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
         <div style="font-weight:600; margin-bottom:6px;">推荐起步架构（3 角色）</div>
@@ -75,15 +75,6 @@ items:
       2) Executor：每个子任务调用哪些 tools？输出什么结构化结果？  
       3) Critic：用什么 rubric 检查“证据链完整性”和“引用准确性”？
 
-  - type: md
-    layout: inline
-    body: |
-      原文节选建议：
-
-      - 源 PDF：`Introduction_to_Agents.pdf`
-      - 建议裁剪页码：第 **14–26** 页（对应章节：A Taxonomy of Agentic Systems / Core Agent Architecture / Multi-Agent Systems and Design Patterns / Agent Deployment and Services）
-
-      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
   - type: pdf
     title: "原文节选：Introduction_to_Agents.pdf（第 14–26 页）"
     assetKey: pdf/excerpts/Introduction_to_Agents.p14-26.pdf

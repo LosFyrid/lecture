@@ -1,7 +1,7 @@
 id: cases-for-science-co-scientist-alphavolve
 title: "案例分析：Google Co-Scientist 与 AlphaEvolve（for science）"
 summary: |
-  通过两个“先进 agent 系统”案例建立研究直觉：Co-Scientist 展示了 multi-agent 生态如何做长期科学探索；AlphaEvolve 展示了“生成 + 自动化 evaluation”的搜索式系统如何在可验证问题上持续优化。
+  通过两个“agent 系统”案例建立研究直觉：Co-Scientist 展示了 multi-agent 生态如何做长期科学探索；AlphaEvolve 展示了“生成 + 自动化 evaluation”的搜索式系统如何在可验证问题上持续优化。
 items:
   - type: md
     title: 为什么要看案例（而且要“带着框架看”）
@@ -45,34 +45,21 @@ items:
 
       - **验证解决方案质量比一开始找到解决方案更容易** 的问题
 
-      这对 for science 很关键，因为科研里大量任务属于：
-      - 生成假设很难，但验证某些性质/一致性/约束往往更可工程化（通过仿真、统计检验、规则校验、对照实验）。
-
-      研究方法启发（你可以直接拿去设计系统）：
+      研究方法启发：
       - 把问题改写成“可验证的目标函数”（evaluation harness），再让生成系统在约束下搜索。
       - 人类专家的作用从“写答案”转为“定义问题、定义指标、定义约束、审阅异常样本”。
 
   - type: html
-    title: 从案例回到 Track101：它们其实依赖你学过的四个支柱
-    note: 如果只看“结果很强”，你会错过真正可复用的方法论。
+    title: 从案例回到 Track101
     body: |
       <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
-        <div style="font-weight:600; margin-bottom:6px;">这些案例告诉你：先进系统不是“更会聊天”，而是“四支柱协同”</div>
+        <div style="font-weight:600; margin-bottom:6px;">这些案例的意义：优秀 Agent 系统需要协同</div>
         <div> - Tool：能接触事实/执行动作，并且输出可验证。</div>
         <div> - Context：长任务状态、证据链、关键约束要被正确管理。</div>
         <div> - Evaluation：必须定义 judge/目标函数，否则无法优化、更无法证明进步。</div>
         <div> - AgentOps：长期运行系统必须可观测、可回滚、可控演化。</div>
       </div>
 
-  - type: md
-    layout: inline
-    body: |
-      原文节选建议（案例阅读）：
-
-      - 源 PDF：`Introduction_to_Agents.pdf`
-      - 建议裁剪页码：第 **47–50** 页（对应章节：Google Co-Scientist / AlphaEvolve Agent）
-
-      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
   - type: pdf
     title: "原文节选：Introduction_to_Agents（第 47–50 页，案例）"
     assetKey: pdf/excerpts/Introduction_to_Agents.p47-50.pdf

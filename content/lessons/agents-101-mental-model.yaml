@@ -1,7 +1,7 @@
 id: agents-101-mental-model
 title: "Agent 心智模型：闭环系统，而不是 Chatbot"
 summary: |
-  建立不过时的 agent 直觉：把 agent 看成“LLM + tools + 编排层 + 环境反馈”的闭环系统；理解为什么 agent 的评估单位是 trajectory（轨迹）。
+  建立 agent 直觉：把 agent 看成“LLM + tools + 编排层 + 环境反馈”的闭环系统；理解为什么 agent 的评估单位是 trajectory（轨迹）。
 items:
   - type: md
     title: 学习目标
@@ -14,7 +14,7 @@ items:
       - 把一个科研任务拆成：目标、约束、tools、上下文输入、可观测信号（logs/traces/metrics）。
 
   - type: md
-    title: 关键心智模型（你应该记住的版本）
+    title: 关键心智模型
     body: |
       推荐的最小定义：
 
@@ -35,20 +35,25 @@ items:
       | Environment | 真实世界 | 动态性、不可控性、延迟/失败、数据漂移 |
 
   - type: html
-    title: 常见误区（需要在 101 阶段纠偏）
-    note: 如果你在做 agent(for science) 研究，这些误区会让你把时间花在“错误的问题”上。
+    title: 常见误区
     body: |
       <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
         <div style="font-weight:600; margin-bottom:6px;">误区 1：Agent = Chatbot</div>
-        <div>聊天只是交互界面；agent 的关键是：自主分解任务 + 调用 tools + 多步 trajectory。</div>
+        <div>聊天只是交互界面；agent 的关键是：从环境获取需要的上下文，使用工具影响环境，从环境更新上下文，调整计划的完整闭环。因此，本质上 agent 是对数据的管理与利用。</div>
         <div style="height:10px;"></div>
 
         <div style="font-weight:600; margin-bottom:6px;">误区 2：Agent = 写更长的 prompt</div>
-        <div>prompt 很重要，但长期可靠性来自：Context 管理、工具接口、评估与可观测闭环（而不是“加点咒语”）。</div>
+        <div>prompt 很重要，但长期可靠性来自：管理 Context 本身、语义和定义明确的工具接口、评估与可观测闭环（在你真正关心的问题上）。</div>
         <div style="height:10px;"></div>
 
         <div style="font-weight:600; margin-bottom:6px;">误区 3：Agent = 固定 workflow</div>
         <div>workflow 可以自动化，但 agent 的难点在于：面对不确定环境（工具失败、信息缺失、用户意图含糊）仍能自适应并可解释。</div>
+        <div style="height:10px;"></div>
+
+        <div style="font-weight:600; margin-bottom:6px;">误区 4：Agent = 嵌入LLM的传统软件开发</div>
+        <div>传统代码精确地控制数据，明确定义所有行为，因此有明确的正确预期和错误预期（例如，Go将error作为默认的显式返回值）。但是 Agent 的行为仅在引入明确可验证的数据模型的情况下失败（例如pydantic basemodel）。因此，单测的通过不代表 Agent 的通过，也不能在开发阶段通过单测的模式覆盖全部场景。</div>
+        <div style="height:10px;"></div>
+        <div>“单元测试”曾经是：对数据在代码中的转换路径进行评估，指标为覆盖度和通过率。而在 Agent 开发中，应该被重新定义为：对数据在Agent中的转换路径进行评估，即，评估 trajectory 的内容、结构与形态。</div>
       </div>
 
   - type: md
@@ -68,15 +73,6 @@ items:
       - 写出 3 个 tools（查询数据库、读论文、跑一个小脚本）
       - 写出 3 个可观测信号（成功率、tool error rate、平均步数/成本）
 
-  - type: md
-    layout: inline
-    body: |
-      原文节选建议（用于对照英文白皮书的表达与图示）：
-
-      - 源 PDF：`Introduction_to_Agents.pdf`
-      - 建议裁剪页码：第 **6–13** 页（对应章节：From Predictive AI to Autonomous Agents / Introduction to AI Agents / The Agentic Problem-Solving Process）
-
-      你裁剪后上传到 S3，再把下面 `assetKey` 改成你的对象 key。
   - type: pdf
     title: "原文节选：Introduction_to_Agents.pdf（第 6–13 页）"
     assetKey: pdf/excerpts/Introduction_to_Agents.p6-13.pdf

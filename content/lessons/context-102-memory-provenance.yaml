@@ -27,7 +27,7 @@ items:
   - type: md
     title: Memory 的设计空间（做研究时可以当作变量）
     body: |
-      你不需要死记名词，但要会用它做设计选择：
+      你需要用它做设计选择：
 
       - **信息类型**：事实 / 偏好 / 计划 / 行动记录 / 程序性知识（procedural）
       - **组织方式**：按实体（项目/样品/人）、按主题、按时间线、按任务
@@ -35,7 +35,7 @@ items:
         - 向量检索（语义相似）
         - 结构化存储（key-value / relational）用于强字段（单位、编号、浓度）
         - 混合检索（科研常见：既要语义召回又要精确过滤）
-      - **作用域（scope）**：用户级 / 项目级 / 团队级（决定共享与隐私策略）
+      - **作用域（scope）**：用户级 / 项目级 / 团队级（决定共享与隐私策略）。也包括 multi-agent 系统中的共享、私有。
 
   - type: md
     title: Memory Generation：Extraction + Consolidation
@@ -45,7 +45,7 @@ items:
       - **Extraction（抽取）**：从对话/轨迹中抽取关键事实与偏好（建议结构化）
       - **Consolidation（整合）**：去重、冲突解决、版本更新，把多次抽取变成更稳定的长期记忆
 
-      科研映射：
+      映射：
       - Extraction 像“自动写实验记录摘要”
       - Consolidation 像“把多次实验总结成 SOP/经验规律”
 
@@ -59,7 +59,7 @@ items:
         <div> - 这条记忆是否被修改过？何时修改？由谁/由哪个策略修改？</div>
         <div> - 本次推理使用了哪些记忆？它们对结论的贡献是什么？</div>
         <div style="height:10px;"></div>
-        <div style="font-weight:600; margin-bottom:6px;">最小实践</div>
+        <div style="font-weight:600; margin-bottom:6px;">一些实践</div>
         <div>为每条 memory 记录：source、retrieved_at、confidence（或证据强度）、适用范围（scope）。</div>
       </div>
 
@@ -85,15 +85,6 @@ items:
 
       然后回答：这些 memory 在推理时应当放在 system instructions 里，还是 conversation history 里，还是作为可调用工具的结果？
 
-  - type: md
-    layout: inline
-    body: |
-      原文节选建议：
-
-      - 源 PDF：`Context Engineering_ Sessions & Memory.pdf`
-      - 建议裁剪页码：第 **27–64** 页（对应章节：Memory / types / extraction & consolidation / provenance & lineage / memory-as-a-tool / retrieval timing / inference with memories）
-
-      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
   - type: pdf
     title: "原文节选：Context Engineering（第 27–64 页）"
     assetKey: pdf/excerpts/Context_Engineering.p27-64.pdf

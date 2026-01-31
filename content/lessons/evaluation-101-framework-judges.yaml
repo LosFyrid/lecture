@@ -35,7 +35,7 @@ items:
       - **Robustness（鲁棒性）**：面对缺失信息、工具失败、歧义意图是否能优雅退化？
       - **Safety & Alignment（安全/对齐）**：是否遵守边界、抵抗注入/泄漏/越权？
 
-      研究建议：不要把评估结果写成“通过/失败”二元；尽量用分布与置信区间表达（同一任务多次运行的结果分布）。
+      研究建议：减少把评估结果写成“通过/失败”二元；可以用分布与置信区间表达（同一任务多次运行的结果分布）。
 
   - type: md
     title: Outside-In：先黑盒，再玻璃盒
@@ -72,15 +72,6 @@ items:
       3) **评分准则（Rubric）**：对开放式回答，用 LLM judge 或专家评分  
       4) **报告（Report）**：成功率、成本分布、错误类型分布、典型轨迹样例
 
-  - type: md
-    layout: inline
-    body: |
-      原文节选建议：
-
-      - 源 PDF：`Agent Quality.pdf`
-      - 建议裁剪页码：第 **6–30** 页（对应章节：Paradigm shift / 4 pillars / Outside-In / judges / HITL / RAI & safety）
-
-      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
   - type: pdf
     title: "原文节选：Agent Quality（第 6–30 页）"
     assetKey: pdf/excerpts/Agent_Quality.p6-30.pdf

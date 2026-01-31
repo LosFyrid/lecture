@@ -1,21 +1,8 @@
 id: intro
 title: 欢迎 & 学习方式
 summary: |
-  本课用于说明 lecture site 的使用方式，以及本 Track 的学习目标与“正确的学习姿势”。
+  本课用于概述 Agent 开发需要关注的目标、路线与概念。
 items:
-  - type: md
-    title: 你会在这里看到什么
-    body: |
-      这个 lecture site 用于**有组织地展示资料**（PDF / 网页 / 归档），并允许你在资料之间插入解释性文字。
-
-      - 支持 Markdown（含表格、任务列表等 GFM）
-      - 支持代码块（用于 SOP / 命令 / 配置片段）
-      - 支持 PDF 内联（用于阅读原始材料/节选）
-
-      ```bash
-      # 示例：查看 MinIO 桶中的对象
-      mc ls myminio/lecture/pdf/
-      ```
   - type: html
     title: Track 101 的学习目标（面向研究生）
     note: 用“研究范式”来学习 agent：看轨迹、看分布、看可复现，而不是只看 demo。
@@ -23,22 +10,19 @@ items:
       <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px;">
         <div style="font-weight:600; margin-bottom:6px;">本 Track 的纠偏目标</div>
         <div style="line-height:1.6;">
-          <div>1) Agent ≠ Chatbot（UI 不是核心）。</div>
+          <div>1) Agent ≠ Chatbot。Agent 是管理上下文的系统。核心在于LLM的工作模式是接收一段序列，返回一段序列。所以上下文，作为一段序列，需要被良好地管理、转换、传入和传出。</div>
           <div>2) Agent 的核心是：闭环（observe→decide→act→observe）、tools、Context、Evaluation、AgentOps。</div>
           <div>3) 研究场景同样需要“运行学”：可观测、可评估、可迭代，才能复现与解释。</div>
         </div>
       </div>
 
   - type: md
-    title: 学习路线图（把 5 份白皮书“串线”成一条主线）
+    title: 学习路线图
     body: |
-      你提出的核心诉求非常对：`Introduction_to_Agents.pdf` 本质是总览，我们不必在每节课都节选它的“总览页”，而应当把“脉络”压缩成一段清晰的路线图放在这里，让读者先看到地图，再进入各模块深入。
-
-      这条主线可以用一句话概括：
 
       > **agent 是闭环系统（多步轨迹）→ 需要 tools 接触事实与行动 → 需要 Context 管理长任务状态 → 需要 Evaluation 判断质量 → 需要 AgentOps 让系统长期稳定迭代（并最终走向 multi-agent 生态的 A2A/registry）。**
 
-      本 Track 把 5 份 PDF 的内容重新编排成 4 个“基础支柱” + 2 个“案例/选读”：
+      本 Track 内容由 4 个“基础支柱” + 2 个“案例/选读”组成，所有内容的原始来源是Google Agent Whitepaper Series：
 
       | 白皮书 | 它回答的核心问题 | 在本 Track 的落点 |
       |---|---|---|
@@ -46,10 +30,10 @@ items:
       | Agent Tools & MCP | tools 怎么设计？MCP 如何解决互操作？风险是什么？ | `tools-*` + MCP 安全案例 |
       | Context Engineering: Sessions & Memory | session/memory 如何让 agent 变“有状态”？如何可追溯？ | `context-*` + memory 评估/隐私案例 |
       | Agent Quality | 如何定义与评估“好 agent”？如何做 observability？ | `evaluation-*` |
-      | Prototype to Production | 如何把系统做成可发布、可回滚、可演化？A2A/registry 如何支撑生态？ | `agentops-*`（A2A/registry 必修） |
+      | Prototype to Production | 如何把系统做成可发布、可回滚、可演化？A2A/registry 如何支撑生态？ | `agentops-*` |
 
   - type: html
-    title: 概念依赖地图（1 分钟版）
+    title: 概念依赖地图
     note: 建议读者在学完整个 Track 之前，随时回到这张“地图”检查自己是否迷路。
     body: |
       <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
@@ -58,6 +42,6 @@ items:
         <div>2) Multi-agent 把系统复杂度提升一个量级：通信/协调/共享上下文/涌现失败模式。</div>
         <div>3) Tools 决定“能做什么”，也定义安全边界；MCP 解决互操作，但引入新风险面。</div>
         <div>4) Context（Sessions/Memory）决定“模型看到什么”，直接决定轨迹与可复现性。</div>
-        <div>5) Evaluation 必须评估轨迹；Observability 是 Evaluation 的前置条件。</div>
+        <div>5) Evaluation 需要评估轨迹；Observability 是 Evaluation 的前置条件。</div>
         <div>6) AgentOps 把评估/观测/发布/回滚/演化连成闭环；A2A/registry 让 multi-agent 生态可复用、可治理。</div>
       </div>

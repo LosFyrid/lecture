@@ -24,9 +24,9 @@ items:
       - **让模型“知道”**：检索外部事实（论文、数据库、实验记录、日志、网页）
       - **让模型“做到”**：执行动作（跑代码/仿真、写入 ELN、提交 HPC 作业、调用仪器 API）
 
-      对科研场景，建议你默认认为：
+      对科研场景，一些注意事项：
       - “事实”应来自工具（grounding），而不是来自模型的记忆；
-      - “动作”必须受控（权限、校验、预算、人工确认）。
+      - “动作”应该受控（权限、校验、预算、人工确认）。
 
   - type: md
     title: Tool 设计 checklist（高频踩坑点）
@@ -41,8 +41,8 @@ items:
       3) **参数校验（validation）要明确**  
          - 单位/范围/枚举值校验；否则模型会生成“看似合理但无效”的参数
       4) **错误要可行动（actionable）**  
-         - 错误信息要告诉 agent：是重试？换参数？需要人介入？还是权限不足？
-      5) **带上 provenance（来源）**（科研刚需）  
+         - 错误信息要告诉 agent：是重试？换参数？需要人介入？还是权限不足？除非你的错误非常复杂或模糊，那么错误处理本身就成为 Agent 流程中的一个核心能力（例如 Coding Agent 的一个核心能力就是修复各种代码 bug ）。
+      5) **带上 provenance（来源）**
          - 数据来源、版本、时间戳、查询条件、误差范围（如有）
 
   - type: html
@@ -57,18 +57,6 @@ items:
         <div> - 数据处理：Python/R pipeline（返回产物路径 + 统计摘要 + 可视化链接）。</div>
         <div> - 实验记录：ELN 读写（写入需强 schema + 权限 + 审计）。</div>
       </div>
-
-  - type: md
-    title: 小练习（写一个“可评估”的 tool）
-    body: |
-      任选一个小工具，写出你认为“对 agent 友好”的接口与返回：
-
-      - 例：`lookup_bandgap(material_id: str) -> {value_eV, method, temperature_K, source, source_url, retrieved_at}`
-
-      你在后续 Evaluation 课程会用到这些字段做：
-      - 引用准确性评估（source 是否真实）
-      - 成本/效率评估（tool 调用次数、耗时）
-      - 失败归因（错误类型分布）
 
   - type: md
     layout: inline

@@ -1,5 +1,5 @@
 id: agent-dev
-title: Agent 开发入门
+title: Agent Dev 101 (v1)
 description: |
   Agent Dev 101：建立合理的 LLM Agent 心智模型，避免过时、落后的认知和理念。同时梳理 LLM Agent 开发的流程，理解 LLM Agent 开发中涉及的基本概念：工具 (Tool)、上下文 (Context)、评估 (Evaluation) 和生产 (AgentOps)。
 
@@ -37,7 +37,7 @@ modules:
       - agentops-101-prototype-to-production
       - agentops-102-a2a-registries-evolve
   - id: cases
-    title: 案例与选读（for science）
+    title: For Science
     lessons:
       - cases-for-science-co-scientist-alphavolve
       - readings-self-evolve-simulation-agent-gym

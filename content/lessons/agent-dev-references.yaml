@@ -1,19 +1,16 @@
 id: agent-dev-references
 title: 参考资料（原始 PDF 全集）
 summary: |
-  本课汇总本 Track 使用的 5 份原始白皮书 PDF。建议把它们作为“权威原文”长期保留，并在做笔记/写作时引用原文页码。
+  本课汇总本 Track 使用的 5 份原始白皮书 PDF。
 items:
   - type: md
     title: 如何使用这些参考资料
     body: |
       建议的阅读方式：
 
-      - **先读本 Track 的讲解**（各课的 md/html），建立心智模型与概念地图  
+      - **先读本 Track 的讲解**，建立心智模型与概念地图（快速导览）  
       - 再按需回到原文 PDF：看图、看定义、看细节与案例
-      - 做研究时优先引用原文（含页码），避免“二手转述”引入概念漂移
-
-      说明：
-      - 本仓库里也提供了中文 MD 译文与知识点 summary（用于内容生产/检索），但 lecture site 内的“权威材料”以原文 PDF 为准。
+      - 优先回顾原文（含页码），避免“二手转述”引入概念漂移
 
   - type: pdf
     title: Introduction to Agents（原文 PDF）

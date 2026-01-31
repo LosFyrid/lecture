@@ -1,7 +1,7 @@
 id: readings-self-evolve-simulation-agent-gym
-title: "选读：学习、自演化与仿真（Simulation / Agent Gym）"
+title: "学习、自演化与仿真（Simulation / Agent Gym）"
 summary: |
-  选读课：理解“自我进化系统”到底在进化什么（Context、tools、策略、multi-agent 结构），以及为什么仿真/Agent Gym 是研究与工程都绕不开的路径（用可控环境做压力测试与动态 evaluation）。
+  理解“自我进化系统”到底在进化什么（Context、tools、策略、multi-agent 结构），以及为什么仿真/Agent Gym 是研究与工程都绕不开的路径（用可控环境做压力测试与动态 evaluation）。
 items:
   - type: md
     title: 学习目标（选读）
@@ -51,7 +51,7 @@ items:
         <div style="height:10px;"></div>
 
         <div style="font-weight:600; margin-bottom:6px;">局限</div>
-        <div>即使有 Agent Gym，也可能无法覆盖所有边缘情况（尤其是隐性“部落知识/暗知识”）。因此仍需 HITL 与持续监控。</div>
+        <div>即使有 Agent Gym，也很难覆盖所有边缘情况（尤其是隐性“部落知识/暗知识”）。因此仍需 HITL 与持续监控。</div>
       </div>
 
   - type: md
@@ -64,16 +64,7 @@ items:
       - 在 Agent Gym 里迭代：生成情景 → 运行 → 记录轨迹 → 评估 → 有度量地改进
       - 任何改进必须回到 evaluation gate：否则你无法证明“变好”而不是“变得更会掩盖错误”
 
-  - type: md
-    layout: inline
-    body: |
-      原文节选建议（选读）：
-
-      - 源 PDF：`Introduction_to_Agents.pdf`
-      - 建议裁剪页码：第 **42–46** 页（对应章节：How agents evolve and learn / How agents learn and self evolve / Simulation and Agent Gym）
-
-      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
   - type: pdf
-    title: "原文节选：Introduction_to_Agents（第 42–46 页，选读）"
+    title: "原文节选：Introduction_to_Agents（第 42–46 页）"
     assetKey: pdf/excerpts/Introduction_to_Agents.p42-46.pdf
 

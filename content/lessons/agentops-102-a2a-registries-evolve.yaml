@@ -1,7 +1,7 @@
 id: agentops-102-a2a-registries-evolve
-title: "AgentOps（下）：Observe/Act/Evolve + A2A + Registry（必修）"
+title: "AgentOps（下）：Observe/Act/Evolve + A2A + Registry"
 summary: |
-  上线后如何管理 agent：observe（感觉系统）/ act（控制杠杆）/ evolve（受控改进）；并学习学界与工程都必须掌握的互操作与复用基础：A2A、MCP 协同与 registry 架构。
+  上线后如何管理 agent：observe（感觉系统）/ act（控制杠杆）/ evolve（受控改进）；并学习互操作与复用基础：A2A、MCP 协同与 registry 架构。
 items:
   - type: md
     title: 学习目标
@@ -11,15 +11,15 @@ items:
       - 描述上线后的三件事：Observe / Act / Evolve。
       - 列出运行时需要管理的健康指标：性能、成本、规模、错误率、漂移信号。
       - 解释 A2A（Agent-to-Agent）解决什么问题，以及它与 MCP 的关系。
-      - 理解为什么 registry（发现/版本/治理）在 multi-agent 生态中是必须组件（而不是企业特有需求）。
+      - 理解为什么 registry（发现/版本/治理）在 multi-agent 生态中是必须组件。
 
   - type: md
     title: In-production：Observe / Act / Evolve
     body: |
       可以把 agent 上线后的管理抽象成三类能力：
 
-      - **Observe（观察）**：日志、追踪、指标；回答“发生了什么？为什么？”
-      - **Act（控制）**：开关某个 tool、降级路径、限流/预算、回滚版本
+      - **Observe（观察）**：日志、追踪、指标；回答“发生了什么？为什么？”。帮助解释和改进。
+      - **Act（控制）**：开关某个 tool、降级路径、限流/预算、回滚版本。帮助归因和消融。
       - **Evolve（演化）**：把线上失败样本与反馈转成可控的改进，并回到 evaluation gate
 
       研究映射：
@@ -74,15 +74,6 @@ items:
       在 multi-agent/科研生态中，这些问题同样存在：  
       研究复现需要“明确版本与依赖”，否则结果不可比较。
 
-  - type: md
-    layout: inline
-    body: |
-      原文节选建议：
-
-      - 源 PDF：`Prototype to Production.pdf`
-      - 建议裁剪页码：第 **19–41** 页（对应章节：Operations in-Production / Observe-Act-Evolve / Beyond Single-Agent / A2A / A2A & MCP / Registry architectures / AgentOps lifecycle / Endnotes）
-
-      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
   - type: pdf
     title: "原文节选：Prototype to Production（第 19–41 页）"
     assetKey: pdf/excerpts/Prototype_to_Production.p19-41.pdf
