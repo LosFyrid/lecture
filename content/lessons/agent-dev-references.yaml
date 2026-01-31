@@ -26,7 +26,7 @@ items:
     assetKey: pdf/original/Context_Engineering_Sessions_and_Memory.pdf
   - type: pdf
     title: Agent Tools & Interoperability with MCP（原文 PDF）
-    assetKey: pdf/original/Agent_Tools_and_MCP.pdf
+    assetKey: pdf/original/Agent_Tools_and_Interoperability_with_MCP.pdf
   - type: pdf
     title: Prototype to Production（原文 PDF）
     assetKey: pdf/original/Prototype_to_Production.pdf

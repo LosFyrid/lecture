@@ -1,0 +1,102 @@
+id: context-case-memory-eval-privacy
+title: "案例分析：Memory 的评估与风险（Testing / Privacy / Security）"
+summary: |
+  把“评估与风险”具体落到 memory 这个状态组件上：如何评估 memory 的生成与检索质量（precision/recall、Recall@K、latency、端到端成功），以及为什么 privacy/security 与架构形态（异步管道、隔离、审计）会直接影响科研可复现性。
+items:
+  - type: md
+    title: 为什么需要这节课（Memory 是“收益很大、风险也很大”的组件）
+    body: |
+      引入 memory 的收益很直观：长任务、跨会话、一致性与个性化。
+
+      但它也会引入一种“研究最怕的失败模式”：
+
+      - **记错/记歪了，但看起来合理** → 污染后续推理与结论
+      - **检索错了** → 把不相关的旧信息当成事实，引入隐蔽偏差
+      - **跨人/跨项目泄漏** → 数据与隐私风险（科研环境同样严重）
+
+      所以 memory 不能只“做出来”，必须“测出来、管起来”。
+
+  - type: md
+    title: 评估 1：Memory 生成质量（它到底记住了什么）
+    body: |
+      白皮书把 memory evaluation 拆得很清楚：先评估 memory 本身的内容质量。
+
+      关键问题：**agent 是否记住了正确的事情？**
+
+      可用的指标（你可以直接落地）：
+
+      - **Precision（精度）**：写入的 memory 里，准确且相关的比例是多少？
+      - **Recall（召回）**：应该从源头记住的事实里，捕获了多少？
+      - **F1-score**：precision/recall 的折中
+
+      for science 的提醒：
+      - 你需要定义“ground truth”：哪些事实必须被记住？哪些必须不记？
+      - 尽量要求 memory 带 provenance（来源/时间戳/数据版本），否则很难判定“对不对”。
+
+  - type: md
+    title: 评估 2：Memory 检索性能（它能否在正确时间找到正确 memory）
+    body: |
+      memory 的第二类失败来自检索阶段：记住了但找不到，或找到了但不该用。
+
+      两个最关键的指标：
+
+      - **Recall@K**：需要 memory 时，正确 memory 是否出现在前 K 个结果里？
+      - **Latency（延迟）**：检索常在 agent 响应的“热路径”上，延迟会直接影响用户体验与系统吞吐
+
+      研究视角：
+      - 这是一个“信息检索问题 + 系统问题”的耦合：既要检索质量，也要工程可用性。
+
+  - type: md
+    title: 评估 3：端到端任务成功（Memory 是否真的让任务更好）
+    body: |
+      最终你仍然需要回到 end-to-end：
+
+      - memory 加入后，任务成功率是否提升？
+      - 成本（token、步数、工具调用）是否下降？
+      - 错误类型分布是否改变（例如 hallucination 是否减少）？
+
+      白皮书明确强调：**Evaluation 不是一次性事件**。  
+      memory 会随时间增长、合并、更新；评估必须持续运行，否则你无法发现漂移与污染。
+
+  - type: html
+    title: Memory 的“生产注意事项”在科研里意味着什么
+    note: 这不是企业专属：它解决的是“热路径阻塞”和“管道故障影响主任务”的系统性问题。
+    body: |
+      <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
+        <div style="font-weight:600; margin-bottom:6px;">关键思想：把 memory 管道从主逻辑中分离（异步/非阻塞）</div>
+        <div> - agent 在会话结束等事件后“推送”原始数据给 memory manager（非阻塞）。</div>
+        <div> - memory manager 后台处理（队列/重试/失败隔离）。</div>
+        <div> - 生成/更新后的 memory 写入专用存储。</div>
+        <div> - agent 在需要时再检索 memory。</div>
+        <div style="height:10px;"></div>
+        <div style="font-weight:600; margin-bottom:6px;">对科研的意义</div>
+        <div>这使得：memory 生成的失败/延迟不会直接破坏一次“研究任务运行”；同时也更利于审计与回放。</div>
+      </div>
+
+  - type: md
+    title: Privacy / Security：为什么 memory 是高风险面
+    body: |
+      白皮书的关键提醒是：memory 来源于并包含用户数据，因此必须有严格的隐私与安全控制。
+
+      对科研环境，典型风险包括：
+
+      - **数据隔离**：不同用户/不同项目的数据不能被错误共享（尤其跨课题组/跨合作方）。
+      - **共享程序记忆的渗透风险**：如果多个用户共享同一组“procedural memory”（教 agent 如何做事的剧本），就存在被注入/污染的风险。
+      - **审计与回滚**：当发现污染时，你必须能定位来源并回滚（否则研究结论被持续污染）。
+
+      建议把 memory 视为一类 tool：  
+      - write/retrieve 都要有权限边界、校验与审计（与 AgentOps 思路一致）。
+
+  - type: md
+    layout: inline
+    body: |
+      原文节选建议（案例阅读）：
+
+      - 源 PDF：`Context Engineering_ Sessions & Memory.pdf`
+      - 建议裁剪页码：第 **65–72** 页（对应章节：Testing and Evaluation / Production considerations for Memory / Privacy and security risks / Conclusion）
+
+      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
+  - type: pdf
+    title: "原文节选：Context Engineering（第 65–72 页，案例）"
+    assetKey: pdf/excerpts/Context_Engineering.p65-72.pdf
+

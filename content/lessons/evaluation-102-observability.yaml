@@ -66,10 +66,9 @@ items:
       原文节选建议：
 
       - 源 PDF：`Agent Quality.pdf`
-      - 建议裁剪页码：第 **31–47** 页（对应章节：Observability / logging-tracing-metrics / actionable insights / quality flywheel）
+      - 建议裁剪页码：第 **31–48** 页（对应章节：Observability / logging-tracing-metrics / actionable insights / quality flywheel / 结论收束）
 
       裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
   - type: pdf
-    title: "原文节选：Agent Quality（第 31–47 页）"
-    assetKey: pdf/excerpts/Agent_Quality.p31-47.pdf
-
+    title: "原文节选：Agent Quality（第 31–48 页）"
+    assetKey: pdf/excerpts/Agent_Quality.p31-48.pdf

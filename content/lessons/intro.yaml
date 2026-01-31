@@ -29,3 +29,35 @@ items:
         </div>
       </div>
 
+  - type: md
+    title: 学习路线图（把 5 份白皮书“串线”成一条主线）
+    body: |
+      你提出的核心诉求非常对：`Introduction_to_Agents.pdf` 本质是总览，我们不必在每节课都节选它的“总览页”，而应当把“脉络”压缩成一段清晰的路线图放在这里，让读者先看到地图，再进入各模块深入。
+
+      这条主线可以用一句话概括：
+
+      > **agent 是闭环系统（多步轨迹）→ 需要 tools 接触事实与行动 → 需要 Context 管理长任务状态 → 需要 Evaluation 判断质量 → 需要 AgentOps 让系统长期稳定迭代（并最终走向 multi-agent 生态的 A2A/registry）。**
+
+      本 Track 把 5 份 PDF 的内容重新编排成 4 个“基础支柱” + 2 个“案例/选读”：
+
+      | 白皮书 | 它回答的核心问题 | 在本 Track 的落点 |
+      |---|---|---|
+      | Introduction to Agents | agent 是什么？taxonomy/multi-agent/系统构成？（总览） | `agents-*` + 案例/选读（for science） |
+      | Agent Tools & MCP | tools 怎么设计？MCP 如何解决互操作？风险是什么？ | `tools-*` + MCP 安全案例 |
+      | Context Engineering: Sessions & Memory | session/memory 如何让 agent 变“有状态”？如何可追溯？ | `context-*` + memory 评估/隐私案例 |
+      | Agent Quality | 如何定义与评估“好 agent”？如何做 observability？ | `evaluation-*` |
+      | Prototype to Production | 如何把系统做成可发布、可回滚、可演化？A2A/registry 如何支撑生态？ | `agentops-*`（A2A/registry 必修） |
+
+  - type: html
+    title: 概念依赖地图（1 分钟版）
+    note: 建议读者在学完整个 Track 之前，随时回到这张“地图”检查自己是否迷路。
+    body: |
+      <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
+        <div style="font-weight:600; margin-bottom:6px;">从直觉到方法论：一条因果链</div>
+        <div>1) Agent（系统）= Model + Tools + Orchestration + 环境反馈闭环（trajectory）。</div>
+        <div>2) Multi-agent 把系统复杂度提升一个量级：通信/协调/共享上下文/涌现失败模式。</div>
+        <div>3) Tools 决定“能做什么”，也定义安全边界；MCP 解决互操作，但引入新风险面。</div>
+        <div>4) Context（Sessions/Memory）决定“模型看到什么”，直接决定轨迹与可复现性。</div>
+        <div>5) Evaluation 必须评估轨迹；Observability 是 Evaluation 的前置条件。</div>
+        <div>6) AgentOps 把评估/观测/发布/回滚/演化连成闭环；A2A/registry 让 multi-agent 生态可复用、可治理。</div>
+      </div>

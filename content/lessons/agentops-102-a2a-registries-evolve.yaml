@@ -80,10 +80,9 @@ items:
       原文节选建议：
 
       - 源 PDF：`Prototype to Production.pdf`
-      - 建议裁剪页码：第 **19–40** 页（对应章节：Operations in-Production / Observe-Act-Evolve / Beyond Single-Agent / A2A / A2A & MCP / Registry architectures / AgentOps lifecycle）
+      - 建议裁剪页码：第 **19–41** 页（对应章节：Operations in-Production / Observe-Act-Evolve / Beyond Single-Agent / A2A / A2A & MCP / Registry architectures / AgentOps lifecycle / Endnotes）
 
       裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
   - type: pdf
-    title: "原文节选：Prototype to Production（第 19–40 页）"
-    assetKey: pdf/excerpts/Prototype_to_Production.p19-40.pdf
-
+    title: "原文节选：Prototype to Production（第 19–41 页）"
+    assetKey: pdf/excerpts/Prototype_to_Production.p19-41.pdf

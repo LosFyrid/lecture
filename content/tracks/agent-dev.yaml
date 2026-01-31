@@ -1,9 +1,9 @@
 id: agent-dev
 title: Agent 开发入门
 description: |
-  Track 101：建立合理的 LLM Agent 心智模型，避免过时、落后的认知和理念。同时梳理 LLM Agent 开发的流程，理解 LLM Agent 开发中涉及的基本概念：工具 (Tool)、上下文 (Context)、评估 (Evaluation) 和生产 (AgentOps)。
+  Agent Dev 101：建立合理的 LLM Agent 心智模型，避免过时、落后的认知和理念。同时梳理 LLM Agent 开发的流程，理解 LLM Agent 开发中涉及的基本概念：工具 (Tool)、上下文 (Context)、评估 (Evaluation) 和生产 (AgentOps)。
 
-  本轮材料（2026-01-30）：Google agent whitepaper series（5 篇）。
+  材料（2025-11）：Google agent whitepaper series（5 篇）。
 modules:
   - id: basics
     title: 基础
@@ -19,11 +19,13 @@ modules:
     lessons:
       - tools-101-design
       - tools-102-mcp-interop
+      - tools-case-mcp-security
   - id: context
     title: Context（Sessions & Memory）
     lessons:
       - context-101-sessions
       - context-102-memory-provenance
+      - context-case-memory-eval-privacy
   - id: evaluation
     title: Evaluation（如何判断好 agent）
     lessons:
@@ -34,8 +36,12 @@ modules:
     lessons:
       - agentops-101-prototype-to-production
       - agentops-102-a2a-registries-evolve
+  - id: cases
+    title: 案例与选读（for science）
+    lessons:
+      - cases-for-science-co-scientist-alphavolve
+      - readings-self-evolve-simulation-agent-gym
   - id: references
     title: 参考资料
     lessons:
       - agent-dev-references
-

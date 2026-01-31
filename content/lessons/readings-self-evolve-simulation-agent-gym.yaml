@@ -1,0 +1,79 @@
+id: readings-self-evolve-simulation-agent-gym
+title: "选读：学习、自演化与仿真（Simulation / Agent Gym）"
+summary: |
+  选读课：理解“自我进化系统”到底在进化什么（Context、tools、策略、multi-agent 结构），以及为什么仿真/Agent Gym 是研究与工程都绕不开的路径（用可控环境做压力测试与动态 evaluation）。
+items:
+  - type: md
+    title: 学习目标（选读）
+    body: |
+      学完本课，你应该能够：
+
+      - 区分几种“学习/进化”的含义：更新 memory、更新 Context 构造、更新 tool 能力、更新策略/编排。
+      - 解释为什么 simulation / Agent Gym 对研究很重要：它让你在“非生产路径”里做系统化训练、红队、动态 evaluation。
+      - 说清楚自演化的风险：漂移、污染、奖励黑客（reward hacking）、不可复现。
+
+  - type: md
+    title: agents 如何“学习与自我进化”（不要把它神秘化）
+    body: |
+      在这份白皮书里，“学习/自我进化”并不等同于“模型参数被训练更新”。
+
+      更常见、更可工程化的学习来源有两类：
+
+      1) **运行时体验（runtime artifacts）**  
+         - 例如 session logs、traces、memory、tool interactions、决策轨迹  
+         - 这些工件记录了成功/失败与上下文条件，能被用来优化后续行为
+      2) **外部信号（external signals）**  
+         - 新的规程/指南/政策、最新文献、来自其他 agents 的批评、来自人类的纠正反馈
+
+      这些信号通常被用来驱动几类“系统层”的改进：
+
+      - **更好的 Context Engineering**：改写系统指令、few-shot 示例、检索与记忆策略（让模型看到更合适的信息）
+      - **tool 优化/创建**：识别能力缺口并补齐（尤其在开放协议 MCP/A2A 的生态里可“换工具/加工具”）
+      - **multi-agent 结构调整**：更换角色分工、增加 verifier/critic、调整协作协议
+
+      研究视角的提醒：
+      - 你需要明确“系统改变了什么”，并把它纳入版本化与 evaluation；否则结果会不可复现。
+
+  - type: html
+    title: 仿真与 Agent Gym：为什么是“下一前沿”
+    note: Agent Gym 的核心价值是：把学习与压力测试从“生产路径”移出去，放到可控环境里。
+    body: |
+      <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
+        <div style="font-weight:600; margin-bottom:6px;">一个可用的 Agent Gym 直觉</div>
+        <div>把它理解成“科研的模拟实验台”：你不在真实环境里反复试错，而是在可控仿真里生成情景、运行 agent、测量失败模式。</div>
+        <div style="height:10px;"></div>
+
+        <div style="font-weight:600; margin-bottom:6px;">白皮书给出的关键特征（用研究语言重述）</div>
+        <div> - 不在执行热路径中（offline / out-of-band）。</div>
+        <div> - 提供模拟环境让 agent “练习”新数据与新策略。</div>
+        <div> - 可引入合成数据生成、红队、动态 evaluation、批评 agents 做压力测试。</div>
+        <div> - tools 不是固定的：可通过 MCP/A2A 等开放协议引入新工具，形成可组合生态。</div>
+        <div style="height:10px;"></div>
+
+        <div style="font-weight:600; margin-bottom:6px;">局限</div>
+        <div>即使有 Agent Gym，也可能无法覆盖所有边缘情况（尤其是隐性“部落知识/暗知识”）。因此仍需 HITL 与持续监控。</div>
+      </div>
+
+  - type: md
+    title: for science 的落地方式（把“自演化”变成研究方法）
+    body: |
+      对科研 agent，更推荐你把“自演化”实现为 **受控的改进闭环**，而不是让系统在生产路径里自由漂移：
+
+      - 先定义：你的目标函数是什么？（例如引用准确性、实验步骤可复现性、工具调用成功率、成本）
+      - 再定义：哪些信号可用于学习？（失败样本、审稿式批评、专家纠错）
+      - 在 Agent Gym 里迭代：生成情景 → 运行 → 记录轨迹 → 评估 → 有度量地改进
+      - 任何改进必须回到 evaluation gate：否则你无法证明“变好”而不是“变得更会掩盖错误”
+
+  - type: md
+    layout: inline
+    body: |
+      原文节选建议（选读）：
+
+      - 源 PDF：`Introduction_to_Agents.pdf`
+      - 建议裁剪页码：第 **42–46** 页（对应章节：How agents evolve and learn / How agents learn and self evolve / Simulation and Agent Gym）
+
+      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
+  - type: pdf
+    title: "原文节选：Introduction_to_Agents（第 42–46 页，选读）"
+    assetKey: pdf/excerpts/Introduction_to_Agents.p42-46.pdf
+

@@ -1,0 +1,79 @@
+id: cases-for-science-co-scientist-alphavolve
+title: "案例分析：Google Co-Scientist 与 AlphaEvolve（for science）"
+summary: |
+  通过两个“先进 agent 系统”案例建立研究直觉：Co-Scientist 展示了 multi-agent 生态如何做长期科学探索；AlphaEvolve 展示了“生成 + 自动化 evaluation”的搜索式系统如何在可验证问题上持续优化。
+items:
+  - type: md
+    title: 为什么要看案例（而且要“带着框架看”）
+    body: |
+      案例的价值不是“看起来很强”，而是把 Track101 的概念落到真实系统：
+
+      - 它们不是 chatbot，而是 **多 agent + tools + evaluation + 长期循环** 的系统
+      - 它们的关键能力来自 **系统设计**：轨迹、可观测、评估、迭代
+
+      阅读时建议你用 4 个问题做解构：
+
+      1) 这个系统的 **角色分工**（multi-agent）是什么？  
+      2) 它有哪些 **tools/外部能力**？输出是否可验证？  
+      3) 它的 **evaluation/目标函数** 是什么？谁来 judge？  
+      4) 它如何 **迭代/演化**（evolve loop）并保持可控？
+
+  - type: md
+    title: 案例 1：Google Co-Scientist（把科学探索做成 multi-agent 生态）
+    body: |
+      白皮书描述的 Co-Scientist 是一种“虚拟研究合作者”，目标是通过系统化探索复杂问题空间，加速科学发现。
+
+      对 Track101 来说，你应该抓住它呈现的几个关键点：
+
+      - **multi-agent 是一等公民**：不是一个模型做所有事，而是一个协作生态系统。
+      - **长期运行与元循环（meta-loop）**：agents 可以连续工作数小时甚至数天，持续改进假设与探索策略。
+      - **研究项目经理式的编排（orchestration）**：系统像一个“研究项目经理”，协调不同角色产出并收敛。
+
+      对科研读者的启发：
+      - 复杂研究问题往往需要“提出假设 → 设计验证 → 反证 → 修正”的循环；multi-agent 可以把这个循环显式化、可追踪化。
+
+  - type: md
+    title: 案例 2：AlphaEvolve（生成 + 自动化 evaluation 的搜索式系统）
+    body: |
+      AlphaEvolve 的核心思想可以概括为：
+
+      - 用 LLM 负责“生成候选方案”（例如代码、算法）
+      - 用自动化 evaluation 系统负责“验证与打分”
+      - 在迭代循环中持续改进（像在做程序/算法的搜索与优化）
+
+      白皮书强调它擅长的一类问题：
+
+      - **验证解决方案质量比一开始找到解决方案更容易** 的问题
+
+      这对 for science 很关键，因为科研里大量任务属于：
+      - 生成假设很难，但验证某些性质/一致性/约束往往更可工程化（通过仿真、统计检验、规则校验、对照实验）。
+
+      研究方法启发（你可以直接拿去设计系统）：
+      - 把问题改写成“可验证的目标函数”（evaluation harness），再让生成系统在约束下搜索。
+      - 人类专家的作用从“写答案”转为“定义问题、定义指标、定义约束、审阅异常样本”。
+
+  - type: html
+    title: 从案例回到 Track101：它们其实依赖你学过的四个支柱
+    note: 如果只看“结果很强”，你会错过真正可复用的方法论。
+    body: |
+      <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
+        <div style="font-weight:600; margin-bottom:6px;">这些案例告诉你：先进系统不是“更会聊天”，而是“四支柱协同”</div>
+        <div> - Tool：能接触事实/执行动作，并且输出可验证。</div>
+        <div> - Context：长任务状态、证据链、关键约束要被正确管理。</div>
+        <div> - Evaluation：必须定义 judge/目标函数，否则无法优化、更无法证明进步。</div>
+        <div> - AgentOps：长期运行系统必须可观测、可回滚、可控演化。</div>
+      </div>
+
+  - type: md
+    layout: inline
+    body: |
+      原文节选建议（案例阅读）：
+
+      - 源 PDF：`Introduction_to_Agents.pdf`
+      - 建议裁剪页码：第 **47–50** 页（对应章节：Google Co-Scientist / AlphaEvolve Agent）
+
+      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
+  - type: pdf
+    title: "原文节选：Introduction_to_Agents（第 47–50 页，案例）"
+    assetKey: pdf/excerpts/Introduction_to_Agents.p47-50.pdf
+

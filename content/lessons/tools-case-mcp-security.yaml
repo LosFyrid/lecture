@@ -1,0 +1,104 @@
+id: tools-case-mcp-security
+title: "案例分析：MCP 的安全风险（Tool Shadowing / Confused Deputy）"
+summary: |
+  MCP 解决互操作，但也引入新的攻击面：tool 定义本身、被消费的内容、以及“通过工具间接越权”的 Confused Deputy 问题。本课用白皮书的风险章节与 appendix 案例，建立你对 MCP 安全边界的研究/工程直觉。
+items:
+  - type: md
+    title: 学习目标（案例分析）
+    body: |
+      学完本课，你应该能够：
+
+      - 解释为什么 “tool definition / tool result” 本身会成为攻击面（不仅是模型 prompt 才危险）。
+      - 识别 MCP 场景下的 3 类常见风险：恶意 tool、恶意内容、敏感信息泄漏/越权。
+      - 用 Confused Deputy 案例说明：为什么“工具链组合”会带来系统级越权，而不是单点漏洞。
+      - 给出你认为合理的最小缓解措施：最小权限、隔离、审计、allowlist、HITL、预算与回滚。
+
+  - type: md
+    title: 为什么这节课是必须的（即使你不是做企业安全）
+    body: |
+      MCP 的目标是让工具生态“一次接入，多处可用”。这意味着：
+
+      - tool 会被更多 agent/runtime 复用（传播面扩大）
+      - tool results 会进入 Context（影响决策轨迹）
+      - multi-agent / A2A 生态会叠加更多“组合路径”
+
+      所以风险也会被放大：你不需要做企业安全，**但你需要理解系统级的安全边界**，否则研究系统会出现不可控的越权、泄漏、污染与不可复现。
+
+  - type: md
+    title: 风险面 1：Tool Shadowing / 恶意 tool 定义
+    body: |
+      一句话：**tool 的描述/定义本身就是“给模型看的输入”**。
+
+      - 如果 tool 定义被伪造或污染，模型可能被诱导选择错误的 tool 或错误的参数
+      - 即使 tool 本身不恶意，描述也可能“看起来可信但引导越权”
+
+      研究视角：当你把 MCP server 当作“可插拔生态”时，必须有：
+      - tool 来源可信度与签名/审核机制（至少是 allowlist）
+      - tool capability 的最小化暴露（不要把后门能力包装成“便利”）
+
+  - type: md
+    title: 风险面 2：Malicious Consumed Content / prompt injection through content
+    body: |
+      在 agent 系统里，“内容”也会成为指令通道：
+
+      - tool 返回的网页/文档/代码片段可能包含对模型的诱导指令
+      - 如果你把这些内容原封不动塞进 Context，模型可能把它当成高优先级指令执行
+
+      最小缓解（研究也通用）：
+      - 将“外部内容”与“系统指令/策略”严格分层（分区/标注）
+      - 对高风险内容做过滤/净化（最小化注入面）
+      - 对高风险 tool 的动作增加确认闸门（HITL）
+
+  - type: md
+    title: 风险面 3：Sensitive Information Leaks / 越权与泄漏
+    body: |
+      典型模式：agent 通过 tool 访问了不该访问的系统或数据。
+
+      关键点在于：越权不一定发生在“一个 tool”，而可能发生在“多个 tool 的组合路径”。
+
+      这会直接破坏科研系统的基本要求：
+      - 数据隔离（不同项目/不同合作方）
+      - 可审计（你需要知道泄漏发生在哪条轨迹）
+      - 可回滚（你需要能快速关停与收敛）
+
+  - type: html
+    title: 最小防线（研究可用版）
+    note: 不追求企业级合规体系，但要保证系统可控、可追责、可复现。
+    body: |
+      <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
+        <div style="font-weight:600; margin-bottom:6px;">建议把 MCP 安全当成“系统设计问题”</div>
+        <div> - 最小权限：每个 tool/token/credential 只允许做必要的事。</div>
+        <div> - allowlist 与审核：只允许已知来源的 MCP servers/tools。</div>
+        <div> - 结构化输入输出 + 校验：降低“自然语言指令注入”进入热路径的概率。</div>
+        <div> - 审计与追踪：记录每次 tool 选择、参数、结果摘要与权限上下文。</div>
+        <div> - Kill switch：能一键关停高风险 tools 或某类动作。</div>
+        <div> - HITL：对不可逆/高成本/高风险动作默认人工确认。</div>
+      </div>
+
+  - type: md
+    title: Confused Deputy 案例：为什么“组合系统”会越权
+    body: |
+      Confused Deputy 的直觉：
+
+      - 系统里存在一个“有权限的代理”（deputy），它本来是为了帮你做事
+      - 攻击者通过输入/内容/工具链把 deputy “说服/诱导”去执行越权操作
+      - 结果不是“攻击者拿到了权限”，而是“有权限的系统替攻击者做了事”
+
+      这类问题在 MCP 生态里尤其典型，因为：
+      - tools 可组合、可跨边界调用
+      - 模型会基于语义选择 tool，容易被“看起来合理”的描述绕过
+      - 多 agent 叠加后，责任链更复杂（更难归因）
+
+  - type: md
+    layout: inline
+    body: |
+      原文节选建议（案例阅读）：
+
+      - 源 PDF：`Agent Tools & Interoperability with Model Context Protocol (MCP).pdf`
+      - 建议裁剪页码：第 **37–55** 页（对应章节：Performance/Scalability bottlenecks / Critical risks / Security in MCP / Tool shadowing / malicious tool definitions / sensitive information leaks / no scope limits / Appendix: Confused Deputy / The attack / The result / Endnotes）
+
+      裁剪后上传到 S3，再把下面 `assetKey` 更新为你的对象 key。
+  - type: pdf
+    title: "原文节选：Tools & MCP（第 37–55 页，案例）"
+    assetKey: pdf/excerpts/Agent_Tools_and_MCP.p37-55.pdf
+
