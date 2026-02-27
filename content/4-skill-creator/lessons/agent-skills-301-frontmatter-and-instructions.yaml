@@ -1,0 +1,163 @@
+id: agent-skills-301-frontmatter-and-instructions
+title: "写作与结构：frontmatter 决定触发，SKILL.md 决定执行"
+summary: |
+  Skill 的成败很大程度由两部分决定：YAML frontmatter（决定“何时加载”）与 SKILL.md 正文（决定“怎么做对”）。本课给你可直接复用的模板、规则与写作 checklist。
+items:
+  - type: md
+    title: 学习目标
+    body: |
+      学完本课，你应该能够：
+
+      - 写出一个合法的 skill 文件夹结构，并避免常见命名错误。
+      - 写出高触发质量的 frontmatter：name/description（含正向触发 + 可选负触发）。
+      - 用一套稳定的 SKILL.md 正文结构表达：步骤、示例、错误处理、引用 references。
+
+  - type: md
+    title: 技术要求与关键规则（先避免“上传失败”）
+    body: |
+      推荐文件结构：
+
+      ```text
+      your-skill-name/
+      ├── SKILL.md
+      ├── scripts/        # optional
+      ├── references/     # optional
+      └── assets/         # optional
+      ```
+
+      关键规则（高频踩坑）：
+
+      - **SKILL.md 必须叫 SKILL.md（区分大小写）**  
+        - ✅ `SKILL.md`  
+        - ❌ `skill.md` / `SKILL.MD` / `README.md`
+      - **skill 文件夹名建议用 kebab-case**  
+        - ✅ `notion-project-setup`  
+        - ❌ `Notion Project Setup` / `notion_project_setup`
+      - **skill 文件夹内部不要放 README.md**  
+        - 给“人类读者”的 README 放在 GitHub repo 根目录（不是 skill 文件夹里）
+      - **frontmatter 里不要出现 XML 尖括号 `< >`**（安全限制）
+
+  - type: md
+    title: YAML frontmatter（最重要的 30 行）
+    body: |
+      frontmatter 的作用：让 Claude 在系统层面知道 **“什么时候该用这个 skill”**。  
+      结论：触发不稳定，优先改 description，而不是加更多正文。
+
+      最小可用模板（只需要两个字段）：
+
+      ```yaml
+      ---
+      name: your-skill-name
+      description: What it does. Use when user asks to [specific phrases].
+      ---
+      ```
+
+      字段要求（强约束）：
+
+      `name`（必填）
+      - kebab-case（小写 + 中划线）
+      - 不要空格/大写
+      - 最好与文件夹同名
+
+      `description`（必填）
+      - 必须同时包含：
+        - **它做什么（WHAT）**
+        - **什么时候用（WHEN / trigger conditions）**
+      - 建议包含用户会说的具体短语（trigger phrases）
+      - 如与文件类型相关，写清楚（例如：.fig / .csv / PR / PDF）
+      - 长度限制：≤ 1024 字符（材料给出的经验值）
+      - 禁止：XML 尖括号 `< >`
+
+      可选字段（按需）：
+      - `license`：开源分发时可加（MIT/Apache-2.0 等）
+      - `compatibility`：环境说明（Claude.ai / Claude Code / API；系统包；网络依赖等）
+      - `metadata`：自定义键值（建议：author/version/mcp-server/category/tags）
+      - `allowed-tools`：可选的工具权限限制（在支持的环境中用于安全边界）
+
+      安全限制（材料强调）：
+      - frontmatter 中禁用 `< >`，因为它会进入系统提示词，可能带来注入风险
+      - skill 命名避免使用保留前缀（材料提到某些词被保留；这里建议以官方规范为准）
+
+  - type: md
+    title: description 怎么写才“触发得对”
+    body: |
+      一个实用写法：
+
+      ```text
+      [What it does] + [When to use it] + [Key capabilities]
+      ```
+
+      好例子（具体、可触发）：
+      - “分析 Figma 设计稿并生成开发交付文档。**当用户上传 .fig 或说 design specs/handoff 时使用**。”
+      - “管理 Linear 的 sprint planning / task creation。**当用户提到 sprint/Linear/tickets 时使用**。”
+
+      坏例子（几乎无法触发或会乱触发）：
+      - “Helps with projects.”
+      - “Creates sophisticated multi-page documentation systems.”（缺触发条件）
+      - “Implements the Project entity model ...”（过于技术化，用户不会这样说）
+
+      负触发（避免“触发过度”）也很重要：
+
+      ```yaml
+      description: Advanced data analysis for CSV files. Use for statistical modeling,
+        regression, clustering. Do NOT use for simple data exploration.
+      ```
+
+  - type: md
+    title: SKILL.md 正文怎么写才“执行得稳”
+    body: |
+      建议把正文写成“能照着做的操作手册”，并显式包含：
+
+      - Instructions（步骤）
+      - Examples（常见场景与期望输出）
+      - Troubleshooting（错误 → 原因 → 解决）
+      - References（需要时再加载的资料：`references/`）
+
+      可复用模板（你可以直接复制后改括号内容）：
+
+      ```md
+      ---
+      name: your-skill
+      description: ...
+      ---
+
+      # Your Skill Name
+
+      ## Instructions
+      ### Step 1: ...
+      - ...
+
+      ### Step 2: ...
+      - ...
+
+      ## Examples
+      ### Example 1: ...
+      - User says: "..."
+      - Actions:
+        1) ...
+      - Result: ...
+
+      ## Troubleshooting
+      ### Error: ...
+      - Cause: ...
+      - Solution: ...
+      ```
+
+  - type: md
+    title: 写作最佳实践（直接影响可靠性）
+    body: |
+      - **具体可执行**：用命令、参数、期望输出描述步骤（不要只写“请先验证数据”）。
+      - **把关键约束放在最上面**：用 “CRITICAL/IMPORTANT” 抬高显著性。
+      - **错误处理要可行动**：失败了是重试？换参数？还是需要用户补充信息？
+      - **引用资源要明确**：例如“在写查询前先看 `references/api-patterns.md` 的分页/限速规则”。
+      - **善用渐进式加载**：SKILL.md 不要无限膨胀；把长文档放到 `references/`。
+      - **关键校验用脚本更可靠**：对“必须满足”的校验（schema/格式/依赖）优先用 `scripts/validate.py` 这种确定性工具。
+
+  - type: md
+    layout: inline
+    body: |
+      来源材料：
+
+      - `original/4-26-02-27/The-Complete-Guide-to-Building-Skill-for-Claude.pdf`
+      - 重点页：Technical requirements & frontmatter（第 10–13 页）
+

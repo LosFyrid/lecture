@@ -1,0 +1,122 @@
+id: agent-skills-601-patterns
+title: "常见模式：把 Skill 写成“可执行的工作流结构”"
+summary: |
+  好的 skill 不只是“说明书”，而是可执行的工作流结构。本课总结材料中常见的 5 种模式：顺序编排、多 MCP 协同、迭代精炼、上下文感知选工具、领域智能，并给出何时使用与写作骨架。
+items:
+  - type: md
+    title: 学习目标
+    body: |
+      学完本课，你应该能够：
+
+      - 判断你的 skill 更偏 “problem-first” 还是 “tool-first”，并据此选择写法。
+      - 从 5 个常见模式里选一个最适合你的 use case 的结构骨架。
+      - 把工作流写成“有依赖、有验证、有失败补救”的步骤，而不是散文式说明。
+
+  - type: md
+    title: 先选叙事：Problem-first vs Tool-first
+    body: |
+      你可以把 skill 的叙事分成两种常见取向：
+
+      - **Problem-first（问题/结果驱动）**：用户描述“我想达成什么”，skill 负责选择工具并编排步骤。  
+        适合：一键搭建、端到端流程、用户不想了解工具细节。
+
+      - **Tool-first（工具/能力驱动）**：用户已经有 MCP/工具连接，但不知道“最佳用法”，skill 提供专家流程。  
+        适合：连接器增强、专家系统化操作、最佳实践固化。
+
+      大多数 skills 会偏向其中一类。偏向不清晰会导致 description 难写、正文难收敛。
+
+  - type: md
+    title: Pattern 1：顺序工作流编排（Sequential Orchestration）
+    body: |
+      适用：流程必须按固定顺序走，且步骤之间有依赖。
+
+      写作骨架：
+      - Step 1：做 A（验证输入）  
+      - Step 2：做 B（依赖 A 的产物）  
+      - Step 3：做 C（阶段性自检）  
+      - Failure：某步失败时如何回滚/重试/提示用户补充信息
+
+      关键技巧：
+      - 明确依赖关系（哪些字段来自上一步）
+      - 每一步都设“验证门”（不要把错误延迟到最后才发现）
+      - 失败补救写清楚（重试策略/回滚/人工介入）
+
+  - type: md
+    title: Pattern 2：多 MCP 协同（Multi‑MCP Coordination）
+    body: |
+      适用：一个结果需要跨多个系统完成（设计 → 存储 → 任务 → 通知）。
+
+      写作骨架（按 phase 分段）：
+      - Phase 1：系统 A（导出/拉取数据）
+      - Phase 2：系统 B（存储/共享链接）
+      - Phase 3：系统 C（创建任务/附加链接）
+      - Phase 4：系统 D（通知/总结）
+
+      关键技巧：
+      - phase 边界清晰（每个 phase 的输入/输出）
+      - 数据在 MCP 之间如何传递（IDs、links、metadata）
+      - 集中错误处理（别让错误分散到每个步骤都重复写）
+
+  - type: md
+    title: Pattern 3：迭代精炼（Iterative Refinement）
+    body: |
+      适用：输出质量需要多轮改进才能达标（报告、长文档、代码生成）。
+
+      写作骨架：
+      - Initial draft：先生成一个可运行/可读的初稿
+      - Quality check：用 checklist 或脚本检查（缺段落、格式不一致、数据不合法）
+      - Refinement loop：逐项修复 → 重新验证 → 直到满足停止条件
+      - Finalization：统一格式、产出摘要与交付物
+
+      关键技巧：
+      - 把“质量标准”写出来（否则迭代会变成无穷）
+      - 有明确停止条件（到什么程度算够好）
+      - 能脚本化就脚本化（确定性校验优先）
+
+  - type: md
+    title: Pattern 4：上下文感知选工具（Context‑Aware Tool Selection）
+    body: |
+      适用：同一个目标，但根据上下文/约束要选择不同工具（文件存储位置、处理路径）。
+
+      写作骨架（决策树）：
+      - 先判断：类型/大小/协作需求/时效性/安全级别
+      - 再选择：工具/系统/存储位置
+      - 最后解释：为什么做这个选择（降低用户不信任与误操作）
+
+      关键技巧：
+      - 决策标准写清楚（否则模型会随机选）
+      - 提供 fallback（工具不可用时退路是什么）
+      - 对用户透明（解释选择理由）
+
+  - type: md
+    title: Pattern 5：领域智能（Domain‑Specific Intelligence）
+    body: |
+      适用：skill 的价值不只是“调用工具”，而是“把专业判断写进去”（合规、科研规范、风格标准）。
+
+      写作骨架：
+      - Before action：先做规则/合规/前置检查（可落盘/可审计）
+      - Action：条件满足才执行（否则升级处理）
+      - Audit trail：记录判断依据与产物（便于复盘与审计）
+
+      关键技巧：
+      - 把领域规则显式化（列表/表格/决策树）
+      - 先检查再行动（把风险关在前面）
+      - 记录证据（“为什么这样做”要可追溯）
+
+  - type: md
+    title: 小练习：为你的 skill 选一个主模式
+    body: |
+      你在 `agent-skills-201` 写的 Design Card 里，选一个 use case：
+
+      1) 选择一个最匹配的 pattern（1~5）  
+      2) 写出 6-10 行的“骨架版 workflow”（只写步骤标题 + 输入输出）  
+      3) 标出 2 个你必须加验证门的地方（否则必翻车）
+
+  - type: md
+    layout: inline
+    body: |
+      来源材料：
+
+      - `original/4-26-02-27/The-Complete-Guide-to-Building-Skill-for-Claude.pdf`
+      - 重点页：Patterns（第 22–24 页）
+

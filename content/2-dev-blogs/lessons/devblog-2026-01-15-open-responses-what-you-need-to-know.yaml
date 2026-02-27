@@ -1,0 +1,38 @@
+id: devblog-2026-01-15-open-responses-what-you-need-to-know
+title: "Open Responses: What you need to know"
+summary: |
+  出发点：生态仍大量使用 Chat Completions 这种“回合式聊天接口”，但 agent 工作负载需要更丰富的结构（多模态、结构化输出、工具调用与事件流）；Responses API 方向正确但封闭，因此提出 Open Responses 作为开放推理标准。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-01-15
+      - 来源：HuggingFace
+      - URL：https://huggingface.co/blog/open-responses
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/HuggingFace/Developer_Guides/2026-01-15__open-responses-what-you-need-to-know__9376086b5b.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：open inference standard、Responses format、stateless default、semantic streaming events、reasoning fields、routers vs providers、agentic loop/tool execution
+      - 要点：
+        - 出发点：生态仍大量使用 Chat Completions 这种“回合式聊天接口”，但 agent 工作负载需要更丰富的结构（多模态、结构化输出、工具调用与事件流）；Responses API 方向正确但封闭，因此提出 Open Responses 作为开放推理标准。
+        - Open Responses 基于 Responses API 的设计目标：让不同 inference provider / router 能在同一请求/响应语义上互操作，逐步替代 chat completions。
+        - 核心特性（面向 agent 的接口差异）：
+          - 默认 stateless，并支持 encrypted reasoning（需要时）。
+          - 标准化模型配置参数。
+          - Streaming 用“语义事件序列”表达，而不是仅文本 delta。
+          - 允许 provider-specific 扩展参数，但目标是逐步沉淀到 base spec。
+        - 推理可见性（迁移时最关键的变化）：把 reasoning item 形式化为三类可选字段：
+          - `content`（原始 reasoning traces，开源权重模型可直接暴露）
+          - `encrypted_content`（provider 保护的内容）
+          - `summary`（对原始 traces 的净化摘要）
+          - 对比：OpenAI 模型过去常只暴露 `summary` + `encrypted_content`；Open Responses 允许更多 provider 暴露 raw reasoning。
+        - Streaming 示例：开源权重模型可流式 `response.reasoning.delta`（原始推理片段），而加密推理模型会流式 `response.reasoning_summary_text.delta`（摘要片段）。
+        - Routing 视角：区分 Model Providers（提供推理）与 Routers（多 provider 编排）；客户端可在请求里指定 provider 及其特定选项，使 router 能统一端点做编排。
+        - Tools 分类：支持 internal（provider 内部托管，如 file search/drive integration）与 external（客户端函数、MCP servers 等外部托管）。
+        - Formalize sub-agent loop：在一次主推理请求中循环“推理→tool call→执行→回灌→继续”，直到完成；并用参数控制循环：
+          - `max_tool_calls` 限制迭代次数；
+          - `tool_choice` 约束可调用工具。
+        - 文章的“可迁移价值”在于：把 agent loop 的输入/输出/streaming 事件、reasoning 语义、provider/router 角色分工、以及 tool 托管模式统一成可标准化的接口语言，便于跨 provider 的工程实现与可观测性对齐。

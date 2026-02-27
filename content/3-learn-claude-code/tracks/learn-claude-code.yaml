@@ -1,0 +1,54 @@
+id: learn-claude-code
+title: "Learn Claude Code：从 0 到 1 构建 nano Claude Code-like agent"
+description: |
+  这是一个项目驱动、递进式的 coding agent 课程：从最小 while 循环（agent loop）开始，逐步叠加工具分发、计划、子智能体隔离、技能按需加载、上下文压缩、任务持久化、团队协作与 worktree 隔离，最终形成一个“可自治的、多智能体协作”的最小系统。
+
+  本轮材料（2026-02-26）：shareAI-lab/learn-claude-code（MIT）。
+  说明：站内提供讲义与关键代码片段；动手练习需本地 clone 上游仓库并运行脚本。
+modules:
+  - id: intro
+    title: 导论
+    lessons:
+      - learn-claude-code-intro
+
+  - id: loop
+    title: 循环与工具
+    lessons:
+      - learn-claude-code-s01-agent-loop
+      - learn-claude-code-s02-tools
+
+  - id: planning
+    title: 规划与隔离
+    lessons:
+      - learn-claude-code-s03-todowrite
+      - learn-claude-code-s04-subagent
+
+  - id: context
+    title: 知识与上下文
+    lessons:
+      - learn-claude-code-s05-skill-loading
+      - learn-claude-code-s06-context-compact
+
+  - id: persistence
+    title: 持久化与后台执行
+    lessons:
+      - learn-claude-code-s07-task-system
+      - learn-claude-code-s08-background-tasks
+
+  - id: teams
+    title: 团队与自治
+    lessons:
+      - learn-claude-code-s09-agent-teams
+      - learn-claude-code-s10-team-protocols
+      - learn-claude-code-s11-autonomous-agents
+
+  - id: worktree
+    title: 工作区隔离
+    lessons:
+      - learn-claude-code-s12-worktree-task-isolation
+
+  - id: references
+    title: 参考资料
+    lessons:
+      - learn-claude-code-references
+

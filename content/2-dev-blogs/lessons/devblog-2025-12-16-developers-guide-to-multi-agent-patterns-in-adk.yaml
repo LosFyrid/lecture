@@ -1,0 +1,35 @@
+id: devblog-2025-12-16-developers-guide-to-multi-agent-patterns-in-adk
+title: "Developer’s guide to multi-agent patterns in ADK"
+summary: |
+  文章把 MAS（Multi-Agent System）类比为“agent 世界的微服务”：单 agent 承担过多职责会变成“万金油但不精”，指令越复杂越难遵循，错误会级联；把职责拆成角色（Parser/Critic/Dispatcher 等）能提高模块化、可测试性与可调试性。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2025-12-16
+      - 来源：Google
+      - URL：https://developers.googleblog.com/developers-guide-to-multi-agent-patterns-in-adk
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/Google/Agents_and_Tooling/2025-12-16__developer-s-guide-to-multi-agent-patterns-in-adk__75c72312c1.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：multi-agent patterns、sequential pipeline、dispatcher/routing、parallel fan-out/fan-in、hierarchical delegation、generator-critic loop、refinement loop、human-in-the-loop、shared state
+      - 要点：
+        - 文章把 MAS（Multi-Agent System）类比为“agent 世界的微服务”：单 agent 承担过多职责会变成“万金油但不精”，指令越复杂越难遵循，错误会级联；把职责拆成角色（Parser/Critic/Dispatcher 等）能提高模块化、可测试性与可调试性。
+        - 给出一组可直接套用的设计模式（用 ADK 伪代码展示），其中最可迁移的是这些结构本身，而不是具体框架：
+          - Sequential pipeline（顺序流水线）：Agent A → B → C，线性可追踪，适合文档处理（解析→抽取→总结）。关键点是**显式 state management**：每步把输出写到共享 state 的特定 key，让下一步可引用。
+          - Dispatcher/Coordinator（意图路由）：中心 agent 读取用户意图，把请求分发给 specialist agents；依赖对子 agent 的清晰描述来做 LLM-driven delegation。
+          - Parallel fan-out + synthesizer（并行评审/多视角）：多个 agent 同时做子任务，最后由 synthesizer 汇总；注意并行执行时仍共享 session state，需要每个 agent 写不同 key 防 race condition。
+          - Hierarchical delegation / agent-as-tool：高层 agent 自己推理，但把某一部分工作委派给下层 agent；可以把“一个子 agent 的完整工作流”封装成一个 tool 调用，让上层以函数方式调用。
+          - Generator + Critic（生成-校验门）：一个 agent 产草稿，另一个按硬标准审查；用 loop 反复生成→反馈→修正，直到 PASS（适合需要语法/合规校验的场景）。
+          - Iterative refinement（生成-点评-润色）：与 PASS/FAIL 不同，这里追求质量提升；用 loop 多轮 critique→refine，并设置 `max_iterations` 或允许提前退出（例如达到质量阈值时 signal `escalate=True`）。
+          - Human-in-the-loop（高风险动作审批）：agent 做常规处理，遇到不可逆/高风险动作（交易、生产部署、敏感数据操作）时调用“审批工具”暂停，等待人类确认。
+        - 文章建议现实系统通常是这些模式的组合：例如 Coordinator 路由 → 某分支并行检索 → 最终再走 generator-critic 做质量门禁。
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      文中以 Google ADK 的伪代码展示模式；ADK 的类名/原语（SequentialAgent/ParallelAgent/AutoFlow 等）可能随版本变化。
+      本课关注 multi-agent 的结构模式（pipeline/dispatcher/fan-out/fan-in/generator-critic/HITL），而不是特定 SDK 的 API 细节。

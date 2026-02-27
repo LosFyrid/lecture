@@ -1,0 +1,103 @@
+id: learn-claude-code-intro
+title: "导论：从 0 到 1 构建 nano Claude Code-like agent（学习方式与环境准备）"
+summary: |
+  这是一门项目驱动、递进式的 coding agent 课程：从最小 while 循环开始，逐步加入工具分发、计划、子智能体、技能按需加载、上下文压缩、任务持久化、团队协作与 worktree 隔离。
+
+  说明：本课程站内提供讲义与关键代码片段；要完成“动手练习”，请在本地 clone 上游仓库并运行对应脚本。
+items:
+  - type: md
+    title: 你将学到什么
+    body: |
+      学完本 Track，你应该能够：
+
+      - 建立一个清晰的心智模型：**coding agent = LLM（决策）+ tools（行动）+ orchestration（控制与状态）**。
+      - 亲手跑通一个从 0 到 1 的最小实现，并理解每一节课“只新增了一个机制”的设计方法。
+      - 识别长任务/并发/协作时的典型失败模式（上下文污染、状态丢失、并行改动互相干扰），并掌握对应的最小工程解法。
+
+  - type: md
+    title: Roadmap（12 节递进课）
+    body: |
+      本课程按 s01 → s12 递进，每一课叠加一个机制（循环本身始终不变）：
+
+      - s01：Agent Loop（最小 while 循环）
+      - s02：Tools（dispatch map，多工具分发）
+      - s03：TodoWrite（可见计划 + nag 提醒）
+      - s04：Subagent（进程隔离 = 上下文隔离）
+      - s05：Skills（按需加载 SKILL.md）
+      - s06：Compact（上下文压缩：策略性遗忘）
+      - s07：Tasks（文件持久化任务系统 + 依赖图）
+      - s08：Background Tasks（后台执行 + 通知队列）
+      - s09：Agent Teams（队友 + JSONL 邮箱）
+      - s10：Team Protocols（request_id + FSM：关机 & 计划审批）
+      - s11：Autonomous Agents（轮询-认领-工作-重复）
+      - s12：Worktree + 任务隔离（控制面/执行面分离）
+
+      建议学习方法（强烈推荐）：
+
+      1) 读讲义（先理解“本课新增的机制”）  
+      2) 跑脚本（确保可复现）  
+      3) 做一次微改动（观察差异，写下结论）
+
+  - type: md
+    title: 环境准备（本地运行）
+    body: |
+      运行练习需要你在本地 clone 上游仓库并配置环境变量。
+
+      1) clone + 安装依赖：
+
+      ```sh
+      git clone https://github.com/shareAI-lab/learn-claude-code
+      cd learn-claude-code
+      pip install -r requirements.txt
+      ```
+
+      2) 配置 `.env`（按需选择模型与供应商）：
+
+      ```sh
+      cp .env.example .env
+      # 编辑 .env，至少填写：
+      # - ANTHROPIC_API_KEY=...
+      # - MODEL_ID=...
+      ```
+
+      3) 从 s01 开始跑：
+
+      ```sh
+      python agents/s01_agent_loop.py
+      ```
+
+      备注：
+      - 仓库使用 `anthropic` SDK + `python-dotenv`；依赖很轻。
+      - `.env.example` 里也给了 Anthropic-compatible 的 `ANTHROPIC_BASE_URL` 示例（可选）。
+
+  - type: html
+    title: 安全与边界（重要）
+    note: 这是学习型实现，不是生产级工具链。请把“安全”当作练习的一部分。
+    body: |
+      <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
+        <div style="font-weight:600; margin-bottom:6px;">你应该默认遵守的安全规则</div>
+        <div>1) <b>不要把真实密钥写进代码或提交到仓库</b>：只放在本地 .env。</div>
+        <div>2) <b>把 agent 视为“会犯错的自动化操作者”</b>：任何可写文件/可执行命令都可能造成不可逆影响。</div>
+        <div>3) <b>优先在隔离目录/沙盒仓库里做实验</b>：不要直接让它改你的主项目。</div>
+        <div>4) <b>先读每节课新增的机制，再运行</b>：避免“看不懂就先跑”的不可控行为。</div>
+      </div>
+
+  - type: md
+    title: 范围说明（你会发现缺了哪些“生产机制”）
+    body: |
+      上游仓库明确声明：这是 0→1 的学习型项目，为保证路径清晰，有意简化或省略了部分生产机制，例如：
+
+      - 更完整的事件/Hook 总线（PreToolUse、SessionStart/End 等）
+      - 基于规则的权限治理与信任流程
+      - 更完整的会话生命周期（resume/fork）与 worktree 生命周期
+      - 完整 MCP 运行时细节（transport/OAuth/资源订阅/轮询）
+
+      你应该把它当成“最小可教实现”：先把机制学会，再去补生产级的复杂性。
+
+  - type: md
+    layout: inline
+    body: |
+      上游仓库：`https://github.com/shareAI-lab/learn-claude-code`
+
+      许可证：MIT
+

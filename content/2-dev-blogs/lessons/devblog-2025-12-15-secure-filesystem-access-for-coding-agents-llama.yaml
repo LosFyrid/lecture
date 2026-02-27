@@ -1,0 +1,41 @@
+id: devblog-2025-12-15-secure-filesystem-access-for-coding-agents-llama
+title: "Secure Filesystem Access for Coding Agents | LlamaIndex"
+summary: |
+  问题 1（权限）：给 coding agent 真实文件系统写权限会带来误删/破坏风险；纯 human-in-the-loop 虽安全但打断自治（难后台运行）。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2025-12-15
+      - 来源：LlamaIndex
+      - URL：https://www.llamaindex.ai/blog/making-coding-agents-safe-using-llamaindex
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LlamaIndex/Safety_and_Security/2025-12-15__secure-filesystem-access-for-coding-agents-llamaindex__e1d4807ab3.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：filesystem virtualization、AgentFS、MCP wrapper tools、deny built-in tools via hooks、unstructured docs parsing、workflow harness、human-in-the-loop
+      - 要点：
+        - 问题 1（权限）：给 coding agent 真实文件系统写权限会带来误删/破坏风险；纯 human-in-the-loop 虽安全但打断自治（难后台运行）。
+        - 问题 2（非结构化文档理解）：PDF/幻灯片/Docs 等在复杂场景下会让 agent 理解退化，需要更高质量的解析与抽取。
+        - 作者给出的工程路线是“**别让 agent 直接碰真实 FS**”：用虚拟文件系统承接读写，把 destructive 操作限制在副本上。示例使用 AgentFS（SQLite 驱动的虚拟 FS/缓存/registry），从 infra 角度更易控、更可审计。
+        - 为了让 agent 只能通过“受控 FS”，做法是：
+          - 用 AgentFS SDK 实现 read/write/edit/list/exists 等基础操作；
+          - 把这些操作包装成 MCP server 的工具（明确 schema 与错误返回），让模型通过 MCP tool 调用访问虚拟 FS；
+          - 同时**禁用/拒绝** agent 的内置 Read/Write/Glob/Edit 工具，防止绕过。
+        - 防绕过的关键护栏：在 tool 执行前加 `PreToolUse` hook，对内置 filesystem 工具调用一律 deny，并给出可操作的拒绝原因（“只能用 filesystem MCP”）；这样即使模型“幻觉”调用了内置工具，也会被拦下。
+        - 解决非结构化文档：利用虚拟 FS 的“文件载入阶段”把 PDF/Docx/PPTX 等先用 OCR/解析服务（示例中用 LlamaParse）提取成文本，再把文本写入虚拟 FS，让后续 agent 读取的是高质量文本而不是原始二进制。
+        - 用 workflow 当 harness：把“准备虚拟 FS → 收集用户 prompt → 运行 agent”做成可恢复、可快照、可插入 human-in-loop 的分步流程；好处是每一步可验证，且更容易在关键点停下来问人/恢复会话。
+        - 可迁移的抽象：
+          - 用“受控的虚拟工作区”替代“直接操作真实环境”；
+          - 用协议化工具（MCP）封装权限边界；
+          - 用 hooks 把“禁止绕过”做成硬约束；
+          - 对非结构化输入先做解析抽取，把文档转成 agent 友好的上下文对象；
+          - 用 workflow 把准备/执行/审批做成可观测、可回放的流水线。
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      文中示例代码依赖当时的 SDK（如 Claude Agent SDK、AgentFS、Zod/MCP wrapper 等），API 可能随版本变化。
+      本课关注可迁移的安全边界：虚拟工作区/最小权限、协议化工具封装、hooks 禁止绕过、先解析非结构化文档再入窗。

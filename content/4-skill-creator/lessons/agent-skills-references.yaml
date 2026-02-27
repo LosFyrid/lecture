@@ -1,0 +1,101 @@
+id: agent-skills-references
+title: "资源与参考：示例 Skills、文档索引与 frontmatter 模板"
+summary: |
+  汇总材料中提到的学习资源与可复用模板：官方文档/博客/示例 skills、skill-creator 的使用方式，以及 frontmatter 的“必填/全量字段”参考。
+items:
+  - type: md
+    title: 推荐资源（按“先学会再查细节”的顺序）
+    body: |
+      如果你在构建第一个 skill，建议顺序是：
+
+      1) 先读：Best Practices / Skills Documentation（建立直觉）
+      2) 再查：API Reference / MCP Documentation（用到再查）
+      3) 最后看：示例 skills（对齐质量上限）
+
+      材料提到的资源类型包括：
+
+      - 官方文档：Skills 文档、API Reference、MCP 文档等
+      - 博客文章：介绍 Agent Skills、如何为 Claude Code 构建 skills 等
+      - 示例仓库：公开的 skills 仓库（含可自定义的技能）
+
+      备注：由于平台能力会更新，建议你以最新官方文档为准。
+
+  - type: md
+    title: 示例 skills（“抄作业”的正确方式）
+    body: |
+      学习 skills 的最快方法之一，是 clone 一份高质量示例，然后做“最小改动”：
+
+      - 先只改 description（触发条件），跑触发测试  
+      - 再改 instructions（步骤与校验），跑功能测试  
+      - 最后加 references/scripts，把复杂度拆到按需加载层
+
+      材料中提到的公共示例仓库（名称以材料为准）：
+      - `anthropics/skills`（示例 skills，可作为模板）
+
+  - type: md
+    title: 工具与实用语句：skill-creator
+    body: |
+      材料建议用 skill-creator 加速：
+
+      - 生成：从需求描述生成 SKILL.md 骨架
+      - 评审：找出常见问题（过泛描述、缺触发、结构缺失）
+      - 迭代：把失败案例喂回去让它建议改法
+
+      一个可直接使用的提示语（示例）：
+      - “Use the skill-creator skill to help me build a skill for [your use case]”
+
+  - type: md
+    title: Reference：YAML frontmatter 模板（必填版 / 全量版）
+    body: |
+      必填版（最小可用）：
+
+      ```yaml
+      ---
+      name: skill-name-in-kebab-case
+      description: What it does and when to use it. Include specific trigger phrases.
+      ---
+      ```
+
+      全量版（可选字段按需添加）：
+
+      ```yaml
+      ---
+      name: skill-name
+      description: ...
+      license: MIT
+      compatibility: Claude.ai / Claude Code / API; requires network; requires xyz
+      allowed-tools: \"Bash(python:*) WebFetch\"  # 如果你的运行环境支持权限限制
+      metadata:
+        author: Your Team
+        version: 1.0.0
+        mcp-server: your-server
+        category: productivity
+        tags: [workflow, automation]
+      ---
+      ```
+
+      安全提示（材料强调）：
+      - frontmatter 禁止出现 `< >`
+      - 其他命名限制以官方规范为准（材料提到某些保留前缀）
+
+  - type: md
+    title: 支持与反馈（发布后你需要的渠道）
+    body: |
+      发布后常见的反馈入口包括：
+
+      - 社区：开发者社区/论坛/Discord（适合通用问题）
+      - Issue：示例 skills 仓库的 issues（适合 bug/文档问题）
+
+      建议你在 issue 里固定包含：
+      - skill 名称与版本
+      - 复现步骤（触发语句、输入文件）
+      - 错误信息/日志（如有）
+
+  - type: md
+    layout: inline
+    body: |
+      来源材料：
+
+      - `original/4-26-02-27/The-Complete-Guide-to-Building-Skill-for-Claude.pdf`
+      - 重点页：Resources and references（第 29 页）、Frontmatter reference（第 31 页）、Example references（第 32 页）
+

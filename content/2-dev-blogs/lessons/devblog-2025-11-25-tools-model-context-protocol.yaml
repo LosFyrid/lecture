@@ -1,0 +1,44 @@
+id: devblog-2025-11-25-tools-model-context-protocol
+title: "Tools - Model Context Protocol"
+summary: |
+  MCP 的 tools 设计目标是“model-controlled”：模型可以基于上下文自动发现与调用工具；但协议不强制 UI/交互形态，客户端可以按需暴露。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2025-11-25
+      - 来源：MCP
+      - URL：https://modelcontextprotocol.io/specification/2025-11-25/server/tools
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/MCP/Safety_and_Security/2025-11-25__tools-model-context-protocol__bfba858067.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：MCP tools spec、tools/list、tools/call、list_changed notification、inputSchema/outputSchema、structuredContent、error taxonomy、security controls
+      - 要点：
+        - MCP 的 tools 设计目标是“model-controlled”：模型可以基于上下文自动发现与调用工具；但协议不强制 UI/交互形态，客户端可以按需暴露。
+        - 能力声明：支持 tools 的 server 必须声明 `tools` capability；其中 `listChanged` 表示 server 是否会在工具列表变化时发通知。
+        - 核心消息：
+          - `tools/list`：列出可用工具（支持分页）。
+          - `tools/call`：调用工具并返回结果。
+          - `notifications/tools/list_changed`：当工具列表变化时，server 应发送通知（尤其对动态工具集很关键）。
+        - Tool 定义的关键字段：
+          - `name`（唯一标识）、`title`/`description`（面向人/模型的说明）、`icons`、`inputSchema`（JSON Schema 参数定义）、可选 `outputSchema`（结构化输出校验）、`annotations`（行为元数据）。
+        - Tool name 的规范（可迁移的“命名约束”）：长度 1–128；大小写敏感；允许字符为 ASCII 字母/数字/下划线/连字符/点；不应包含空格和特殊符号；同 server 内必须唯一。
+        - Tool Result 的两种形态：
+          - 非结构化：`content` 字段可包含多种内容类型（text/image/audio/resource link/embedded resources），并支持 annotations（受众、优先级、修改时间等）。
+          - 结构化：`structuredContent` 返回 JSON 对象；为了向后兼容，建议同时在 text content 里返回 JSON 序列化文本。
+        - `outputSchema` 的价值：如果提供，server 必须返回符合 schema 的结构化结果；客户端应该做校验。它能带来更严格的类型信息、更好的解析与开发体验，并帮助 LLM 正确消费返回值。
+        - 错误处理分层（非常实用）：
+          - Protocol Errors：JSON-RPC 层的结构性错误（未知 tool、请求不合法等），模型通常不容易自修复。
+          - Tool Execution Errors：在 tool result 中用 `isError: true` 表示（API 失败、输入校验、业务逻辑错误等），应包含可操作的反馈，客户端**应该把这类错误提供给模型**以便自修复重试。
+        - 安全考虑（server/client 双侧职责）：
+          - Server：校验输入、访问控制、限流、清洗输出；
+          - Client：对敏感操作做用户确认、展示 tool inputs 防数据外泄、校验 tool results 后再喂给 LLM、设置超时、审计日志等。
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      本文是 MCP 协议 **2025-11-25 revision** 的规范快照。
+      协议字段/最佳实践可能在后续 revision 更新；做实现/对接时以 MCP 最新规范为准，本课关注其核心抽象（tools/list、tools/call、schema、错误语义与安全分工）。

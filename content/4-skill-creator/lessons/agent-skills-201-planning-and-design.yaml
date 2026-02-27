@@ -1,0 +1,105 @@
+id: agent-skills-201-planning-and-design
+title: "规划与设计：从 Use Case 出发定义触发、步骤与成功标准"
+summary: |
+  先别急着写 SKILL.md：高质量 skill 的起点是 2-3 个具体 use case + 清晰的触发条件 + 可验证的成功标准。你要先知道“它该在什么时候出现、做完算成功”。
+items:
+  - type: md
+    title: 学习目标
+    body: |
+      学完本课，你应该能够：
+
+      - 写出 2-3 个“足够具体”的 use case（含触发语句、步骤、产物）。
+      - 用一句话说明你的 skill 属于哪一类（资产生成 / 工作流自动化 / MCP 增强）。
+      - 为 skill 定义一组成功标准：触发准确率、工具调用次数、失败率、用户纠正次数等。
+
+  - type: md
+    title: 从 Use Case 开始（最小模板）
+    body: |
+      在写任何代码或说明之前，先做一个最小 use case 定义（推荐你至少写 2-3 个）：
+
+      ```text
+      Use Case: [用户想完成什么结果]
+      Trigger:  用户会怎么说（关键短语/同义表达/相关文件类型）
+      Steps:    这个结果通常需要哪些步骤（多步编排）
+      Tools:    需要哪些工具（Claude 内建 / 脚本 / MCP）
+      Output:   最终交付物长什么样（结构/格式/链接/文件）
+      ```
+
+      关键点：use case 必须“能执行”，而不是愿景口号。  
+      - ✅ 好：把一个 sprint 从现状拉取 → 分析容量 → 生成任务 → 创建 tickets  
+      - ❌ 差：提升项目管理效率
+
+  - type: md
+    title: 三类常见 Skill（选型：你要走哪条路）
+    body: |
+      观察到的高频 use case 可以分为三类（你可以用它们来做自检）：
+
+      1) **文档/资产生成（Document & Asset Creation）**  
+         - 目标：稳定产出高质量内容（文档/演示/表格/设计/代码）  
+         - 技术特点：通常不依赖外部工具，更多依赖模板、风格规范、质量清单  
+         - 典型技巧：style guide、模板结构、final checklist
+
+      2) **工作流自动化（Workflow Automation）**  
+         - 目标：把多步流程固化成可重复的方法论（含验证门）  
+         - 技术特点：常需要脚本、校验、迭代回路  
+         - 典型技巧：step-by-step + validation gates + iterative refinement
+
+      3) **MCP 增强（MCP Enhancement）**  
+         - 目标：把“会调工具”升级为“会用工具把事做成”  
+         - 技术特点：顺序编排、多次 MCP 调用、参数/错误处理、跨工具数据传递  
+         - 典型技巧：multi-MCP coordination、明确的失败补救、日志/可观测性
+
+      备注：一个 skill 也可能跨类，但你最好明确“主叙事”，否则 description 很难写好。
+
+  - type: md
+    title: 定义成功标准（Success Criteria）
+    body: |
+      你需要提前想好：**怎样算“skill 有效”**。下面是一组可直接复用的指标模板：
+
+      定量（Quantitative）：
+      - **触发准确性**：在应该触发的请求里，skill 触发率 ≥ 90%（先用 10-20 条测试语句估算）
+      - **效率**：同一任务（有 skill vs 无 skill）的 tool calls / token 消耗对比
+      - **可靠性**：每次工作流的失败 API 调用次数（理想是 0；现实可接受可重试）
+
+      定性（Qualitative）：
+      - 用户是否还需要频繁“提示下一步”（工作流是否真正被内化）
+      - 多次运行结果是否结构一致、质量稳定（是否需要大量人工纠正）
+      - 新用户是否能“第一次就跑通”（可迁移性/可理解性）
+
+      提醒：这些指标在早期很难做到完全“科学测量”。你可以先用“有依据的 vibes”起步，但要保留可迭代空间。
+
+  - type: md
+    title: 小练习：写一张 Skill 设计卡片（Design Card）
+    body: |
+      选择一个你真的会用的技能方向（建议和你的工作绑定），填完下面这张卡片：
+
+      ```text
+      Skill name（kebab-case）:
+      一句话价值主张（outcome）:
+
+      Use case #1:
+      - Trigger phrases (3-5):
+      - Steps (3-6):
+      - Output:
+
+      Use case #2:
+      - Trigger phrases (3-5):
+      - Steps (3-6):
+      - Output:
+
+      Success criteria:
+      - Triggering:
+      - Functional:
+      - Performance:
+      ```
+
+      下一课我们会把它落成 frontmatter + SKILL.md 的正文结构。
+
+  - type: md
+    layout: inline
+    body: |
+      来源材料：
+
+      - `original/4-26-02-27/The-Complete-Guide-to-Building-Skill-for-Claude.pdf`
+      - 重点页：Planning and design（第 8–13 页，含 use case、类别、success criteria）
+

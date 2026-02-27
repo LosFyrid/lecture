@@ -1,0 +1,36 @@
+id: devblog-2025-07-14-context-rot-how-increasing-input-tokens-impacts
+title: "Context Rot: How Increasing Input Tokens Impacts LLM Performance"
+summary: |
+  文章挑战一个常见误解：模型在 Needle-in-a-Haystack（NIAH）上接近满分，并不代表它在真实长上下文任务里也“均匀可靠”。NIAH 多数是**词面匹配的检索题**，代表性不足。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2025-07-14
+      - 来源：Chroma
+      - URL：https://research.trychroma.com/context-rot
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/Chroma/Safety_and_Security/2025-07-14__context-rot-how-increasing-input-tokens-impacts-llm-performance__e09ac45244.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：long-context evaluation、NIAH 局限、semantic needles、distractors、LongMemEval、18 LLMs、非均匀退化
+      - 要点：
+        - 文章挑战一个常见误解：模型在 Needle-in-a-Haystack（NIAH）上接近满分，并不代表它在真实长上下文任务里也“均匀可靠”。NIAH 多数是**词面匹配的检索题**，代表性不足。
+        - 研究思路：保持任务“本质难度”不变，只改变输入长度，以隔离“仅因为上下文变长”带来的性能影响（避免把“长=更难任务”混在一起）。
+        - 在 NIAH 上做了两类扩展：
+          - 把 needle 与 question 从 lexical match 扩展到 **semantic match**（用 embedding 相似度衡量），更贴近真实查询（用户不一定给精确关键词）。
+          - 往 haystack 中引入更复杂的干扰项（distractors），考察模型在长输入里做消歧的能力。
+        - 还加入了更接近对话/记忆的评估：LongMemEval（多轮问答）与“重复词复制”这类合成任务，保证控制变量清晰。
+        - 覆盖 18 个 LLM（闭源+开源权重），观察到一个稳健现象：**即使任务非常简单，性能也会随输入长度增长而下降**，且下降方式在不同模型间并不一致（non-uniform）。
+        - 关键发现之一：needle-question 的语义相似度越低，随输入变长的性能退化越明显；作者用多种 embedding 模型计算相似度范围（并给出相似度区间）来证明这不是某个 embedding 的偶然。
+        - 另一关键发现：distractors 的负面影响会随输入长度放大，且不同模型家族应对歧义/干扰的行为模式不同。
+        - 方法学细节（可迁移到你自己的 long-context eval）：从两个语料域构造 haystack（Paul Graham essays 与 arXiv papers），用 embedding+UMAP+HDBSCAN 聚类找主题；再手写 needles 让其“主题上融入 haystack”，并确保语料本身不含答案，避免“模型答对是因为语料里本来就有”。
+        - 结论：长上下文不是“解决了”，需要更贴近真实语义检索与干扰消歧的评估；对 agent 工程来说，这意味着“能塞更多”不等于“应该塞更多”，context engineering 仍是关键。
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      文中的具体模型列表、分数曲线与 embedding 选择具有时间敏感性（新模型/新训练会改变量化结果）。
+      本课关注其可复用的方法论：控制变量（只变输入长度）、semantic needles、distractors、以及更贴近真实 long-context 的评估设计。

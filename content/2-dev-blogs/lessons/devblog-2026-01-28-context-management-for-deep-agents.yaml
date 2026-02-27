@@ -1,0 +1,30 @@
+id: devblog-2026-01-28-context-management-for-deep-agents
+title: "Context Management for Deep Agents"
+summary: |
+  背景：长任务 agent 的“可解决任务长度”在增长，但 context window 仍有限且会 context rot；因此 Deep Agents SDK 把 context management（更准确说：context compression）做进 harness。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-01-28
+      - 来源：LangChain
+      - URL：https://blog.langchain.com/context-management-for-deepagents
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LangChain/Agents_and_Tooling/2026-01-28__context-management-for-deep-agents__e0950f99f1.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：context compression、filesystem offloading、summarization fallback、threshold tuning、targeted evals、recoverability tests
+      - 要点：
+        - 背景：长任务 agent 的“可解决任务长度”在增长，但 context window 仍有限且会 context rot；因此 Deep Agents SDK 把 context management（更准确说：context compression）做进 harness。
+        - Deep Agents 的核心抽象：给 agent 一个 filesystem（list/read/write/search/execute），把不该长期占用上下文的大对象卸载到磁盘，并在需要时再检索回来。
+        - 三类压缩机制（触发频率不同）：
+          - 大 tool 结果卸载：当某次 tool response 超过 **20,000 tokens**，立即写入 filesystem，并在对话里替换成“文件路径引用 + 前 10 行预览”，让 agent 需要时再读/grep。
+          - 大 tool 输入卸载：当 session context 超过模型窗口的 **85%**，把更早的 write/edit tool 调用参数（通常含整段文件内容）截断成“指向磁盘文件的指针”，因为这些内容本来就已经持久化在文件系统里。
+          - Summarization：当超过阈值且已无可卸载内容时，用 LLM 生成**结构化摘要**（session intent、生成的 artifacts、next steps），用摘要替换完整历史；同时把原始完整消息写入 filesystem 作为“可追溯的 canonical record”，确保可恢复细节。
+        - “这套机制怎么验证有效”：作者建议在 benchmark/样例任务上**故意把阈值调得更激进**（例如把 summarization 从默认阈值改成在窗口 **10–20%** 就触发），以产生更多压缩事件，放大单个机制的信号，便于比较实现差异（比如在总结 prompt 里显式加“intent/next steps”字段来减少 goal drift）。
+        - 提出 targeted evals（类似集成测试）来隔离问题：
+          - summarization 是否保留目标？（中途强制总结，看 agent 是否继续完成任务）
+          - summarization 后是否可恢复关键事实？（埋一个 needle-in-haystack 事实，强制总结后要求 agent 通过 filesystem search 找回）
+        - 最危险的失败模式是 goal drift：总结后 agent 忘记用户意图、误判已完成、或开始问无关澄清；因此要监控并用高频压缩压力测试来暴露。

@@ -1,0 +1,30 @@
+id: devblog-2026-02-26-you-dont-know-what-your-agent-will-do-until-its
+title: "You don’t know what your agent will do until it’s in production"
+summary: |
+  为什么“agent 上线前你不知道它会做什么”：传统软件的输入空间有限（按钮/表单/固定 API），可用测试覆盖与监控指标（错误率/延迟/DB 查询）；而 agent 的输入是自然语言，输入空间近乎无限，且 LLM 对措辞/上下文顺序敏感、又有采样随机性，同一输入也可能产生不同输出；再加上 agent 以多步推理+工具调用+检索组成轨迹，开发期很难穷举。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-02-26
+      - 来源：LangChain
+      - URL：https://blog.langchain.com/you-dont-know-what-your-agent-will-do-until-its-in-production
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LangChain/Agents_and_Tooling/2026-02-26__you-don-t-know-what-your-agent-will-do-until-it-s-in-production__ca9af622f4.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：AgentOps、agent observability、production monitoring、sampling & annotation、online eval、multi-turn traces
+      - 要点：
+        - 为什么“agent 上线前你不知道它会做什么”：传统软件的输入空间有限（按钮/表单/固定 API），可用测试覆盖与监控指标（错误率/延迟/DB 查询）；而 agent 的输入是自然语言，输入空间近乎无限，且 LLM 对措辞/上下文顺序敏感、又有采样随机性，同一输入也可能产生不同输出；再加上 agent 以多步推理+工具调用+检索组成轨迹，开发期很难穷举。
+        - 生产监控的对象变了：不只是系统指标，更重要的是**对话内容与轨迹本身**。需要记录：
+          - 完整 prompt–response；
+          - 多轮 thread 级别的上下文；
+          - 轨迹中的中间步骤（工具调用、检索、决策点），而不是只看最终回复。
+        - 人工评审难以规模化：文中给的量级直觉是，一个审阅者每小时大约能有效评估 **50–100** 条 trace；若每天 1,000 个请求，全人工会变成每天 **10–20 小时**的人力投入，因此必须引入抽样、队列与自动化评估。
+        - 需要“可配置的在线评估策略”：哪些 trace 要评（全量 / 抽样，常见抽样比例 **10–20%** / 规则过滤子集）；评什么（质量指标/安全检查/格式校验/自定义 rubric）；何时告警（阈值触发通知）。
+        - 监控 tool 与评估应覆盖工具使用质量：例如检索是否相关、工具输出是否被正确利用；同时还要覆盖安全合规（敏感信息、策略违规等）。
+        - 为什么通用 APM 工具不够：agent 的 payload 是长文本+多轮状态，存储/检索（尤其语义检索）与数据模型（thread/step）都不同；更关键的是 agent 可观测性要和开发闭环“连起来”：生产失败样本要能一键进入数据集 → 在 playground/实验里对比新旧提示/策略 → 回归验证 → 再部署。
+        - 组织协作面也不同：agent observability 往往需要 ML 工程、产品、领域专家、数据科学一起看同一批生产轨迹并做决策，而不只是 SRE/DevOps。
+        - 仍然开放的难题：LLM judge 的可靠性、规模化成本（抽样/自动评估/人工的平衡）、以及隐私与合规（存储完整对话的敏感性）。

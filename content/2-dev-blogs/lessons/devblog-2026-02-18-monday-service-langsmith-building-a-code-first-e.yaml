@@ -1,0 +1,37 @@
+id: devblog-2026-02-18-monday-service-langsmith-building-a-code-first-e
+title: "monday Service + LangSmith: Building a Code-First Evaluation Strategy from Day 1"
+summary: |
+  核心态度：把评估当作 Day 0 需求而不是上线前最后一道门。原因是 agent 的 ReAct 轨迹具有级联效应：prompt 或一次 tool call 的小偏差会把后续轨迹带向完全不同结果。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-02-18
+      - 来源：LangChain
+      - URL：https://blog.langchain.com/customers-monday
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LangChain/Evaluation_and_Observability/2026-02-18__monday-service-langsmith-building-a-code-first-evaluation-strategy-from-day-1__b65eedb0ae.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：evals-driven development、offline vs online eval、golden datasets、LLM-as-judge、multi-turn evaluator、evals as code、CI/CD reconciliation
+      - 要点：
+        - 核心态度：把评估当作 Day 0 需求而不是上线前最后一道门。原因是 agent 的 ReAct 轨迹具有级联效应：prompt 或一次 tool call 的小偏差会把后续轨迹带向完全不同结果。
+        - 他们提出“双支柱”评估架构：
+          - Offline eval（Safety Net）：类似单元测试/回归测试，跑 curated 的 golden datasets，覆盖 groundedness、检索准确、tool-calling、以及特定 edge cases，防止一次 prompt 调整引入其它任务回归。
+          - Online eval（Monitor）：在真实生产 traces 上持续评估业务信号（如自动解决率/containment），做端到端质量监控。
+        - Offline 评估从“可落地的起点”开始：先做约 **30** 条真实（脱敏）IT 工单构成的最小数据集；先做 deterministic smoke checks：
+          - agent 不崩溃/不超时；
+          - 输出符合 schema；
+          - 会话/线程状态正确持久化；
+          - 工具调用链路与输入输出基本合理。
+        - 在 smoke checks 之上引入 LLM-as-judge：用现成 evaluator（如 correctness/groundedness）把 agent 输出与参考答案对比；随着系统复杂度上升，再把“单一正确率”拆成更细的信号（例如每条事实是否可追溯到 KB、冲突策略、guardrails 等）。
+        - 为了加速迭代，他们把评估跑成并行 pipeline，形成显著加速：反馈循环从 **162s → 18s（8.7×）**，让“几百条样本的回归”从小时级变成分钟级。
+        - Online eval 的关键是 multi-turn：很多成功不是某一条回复，而是整段对话是否把用户带到解决；因此用 multi-turn evaluator 对完整 thread 打分（满意度、语气、目标达成等），并通过“inactivity window（会话多长时间不活跃算结束）”来决定何时评估；再用 sampling rate 控成本。
+        - Evals as Code（EaC）：把“judges/评估提示”写成版本控制的 TypeScript 对象（包含 extractionFields/模型配置/system prompt/human prompt），让它像生产代码一样走 PR review 与 CI/CD。
+        - 部署时做 reconciliation loop（可迁移的 infra 思路）：
+          - Sync：把本地 prompt 定义推到平台 registry；
+          - Reconcile：对比本地规则与线上激活规则，自动更新/创建；
+          - Prune：删除代码库里已不存在的“僵尸评估/提示”。
+        - 总结出的可迁移实践：评估要拆“离线回归 + 在线监控”；多轮对话要用多轮评估；评估逻辑要代码化并可持续部署；并行化评估 runner 是提升迭代速度的直接杠杆。

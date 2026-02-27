@@ -1,0 +1,31 @@
+id: devblog-2026-01-11-under-the-hood-universal-commerce-protocol-ucp
+title: "Under the Hood: Universal Commerce Protocol (UCP)"
+summary: |
+  UCP 的问题定义很“agent 工程化”：传统商业系统存在 N×N 集成瓶颈（每个 agent surface 都要和每个商家后端做 bespoke 对接）；协议化的目标是把“发现→加购→支付→订单管理”等能力抽象成可发现的 primitives，让 agent 能动态对接。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-01-11
+      - 来源：Google
+      - URL：https://developers.googleblog.com/under-the-hood-universal-commerce-protocol-ucp
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/Google/Developer_Guides/2026-01-11__under-the-hood-universal-commerce-protocol-ucp__1fcf9eaf10.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：capability manifest、.well-known discovery、protocol-based integration、A2A/MCP/API transports、profiles、idempotency & signatures
+      - 要点：
+        - UCP 的问题定义很“agent 工程化”：传统商业系统存在 N×N 集成瓶颈（每个 agent surface 都要和每个商家后端做 bespoke 对接）；协议化的目标是把“发现→加购→支付→订单管理”等能力抽象成可发现的 primitives，让 agent 能动态对接。
+        - 关键机制是“能力（capability）+ 发现（discovery）”：
+          - 商家暴露自己支持的服务与 capabilities（如 product discovery、checkout、discounts 等），并可通过 extensions 扩展能力；
+          - agent 通过 profiles 动态发现商家 capabilities 与支付选项，而不是硬编码集成。
+        - 一个对 agent 互操作很有借鉴意义的做法：商家在 `/.well-known/ucp` 提供标准 JSON manifest（版本、服务、capabilities、endpoint bindings、支付配置等），agent 通过拉取 manifest 实现**动态发现、版本化与配置协商**。
+        - 协议支持多种 transport（对课程的可迁移点）：同一 capability 可以绑定到 REST API 或 MCP binding，也可以通过 A2A；也就是说，“能力层”与“传输层”解耦，便于在不同系统里落地。
+        - 支付架构的抽象：把 payment instruments（用户用什么付）与 payment handlers/processors（由谁处理）分离，支持多支付提供方扩展。
+        - 文中 walkthrough（可迁移的工程要点）：
+          - 用 manifest discovery 启动对接；
+          - 用 capability 版本与请求头传递 agent profile；
+          - 用 request-signature、idempotency-key、request-id 等机制让“agent 发起的交易类调用”可审计、可重放防抖、可安全验证。
+        - 即使你不做“电商 agent”，这篇文章也提供了一个可复用的互操作蓝图：把后端能力以标准 manifest 暴露，agent 通过 discovery+版本协商+多 transport binding 动态接入，从而避免“每加一个工具/服务都要写一套定制 glue code”。

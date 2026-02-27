@@ -1,0 +1,23 @@
+id: agent-dev-201-t05-multi-agent
+title: "Track 5 - Multi-Agent：何时需要、多 agent 架构与协作模式"
+description: |
+  建立 multi-agent 的正确边界与可落地架构：先理解为什么多数场景不该轻易 multi-agent，
+  再学习 orchestrator-worker、并行压缩、常见协作模式与跨系统 capability discovery。
+modules:
+  - id: m01-multi-agent
+    title: "先立边界：为什么不要轻易做 multi-agent"
+    lessons:
+      - devblog-2025-06-12-don-t-build-multi-agents
+  - id: m02-agent-orchestrator-worke
+    title: "可落地的多 agent 架构：Orchestrator-Worker / 并行压缩"
+    lessons:
+      - devblog-2025-06-13-how-we-built-our-multi-agent-research-system
+      - devblog-2026-01-21-building-multi-agent-applications-with-deep-agen
+  - id: m03-agent
+    title: "多 agent 设计模式（代码优先视角）"
+    lessons:
+      - devblog-2025-12-16-developers-guide-to-multi-agent-patterns-in-adk
+  - id: m04-a2a-registry-ucp-capabil
+    title: "A2A / Registry：互操作与发现（案例：UCP 的 capability manifest）"
+    lessons:
+      - devblog-2026-01-11-under-the-hood-universal-commerce-protocol-ucp

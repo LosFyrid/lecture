@@ -1,0 +1,37 @@
+id: devblog-2024-03-15-12-factor-agents-content-factor-03-own-your-cont
+title: "12-factor-agents/content/factor-03-own-your-context-window.md at main · humanlayer/12-factor-agents"
+summary: |
+  文章把 agent 的 LLM 输入概括为一句话：在任意时刻你给模型的输入本质是“**到目前为止发生了什么，下一步该做什么**”。LLM 是无状态函数，输出质量取决于输入质量——因此“Everything is context engineering”。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2024-03-15
+      - 来源：HumanLayer
+      - URL：https://github.com/humanlayer/12-factor-agents/blob/main/content/factor-03-own-your-context-window.md
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/HumanLayer/Safety_and_Security/2024-03-15__12-factor-agents-content-factor-03-own-your-context-window-md-at-main-humanlayer__5ebaec8bda.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：own your context window、custom context format、event log→prompt、token efficiency、error handling、safety filtering
+      - 要点：
+        - 文章把 agent 的 LLM 输入概括为一句话：在任意时刻你给模型的输入本质是“**到目前为止发生了什么，下一步该做什么**”。LLM 是无状态函数，输出质量取决于输入质量——因此“Everything is context engineering”。
+        - Context 的范围不止 message 列表，还包括：系统指令、检索到的外部文档（RAG）、历史状态/工具调用与结果、跨会话记忆、以及输出的结构化约束。
+        - 关键主张：**你不必使用标准的 message 格式**。标准格式可用，但如果想榨干模型能力，需要拥有把上下文组织成“对你任务最 token/注意力友好”的格式的自由。
+        - 示例：把整个上下文压到一个 user message 里，用 XML/标签式事件块表达（Slack 原始请求、工具 intent、工具结果等），最后显式问 “what’s the next step?”，让模型在你定义的结构里做下一步决策。
+        - 给出一种实现路径：把会话表示为 `Thread{ events: List[Event] }`；每个事件带 `type` 与 `data`；通过 `event_to_prompt` 把事件渲染为 `<event.type> ... </event.type>`，再把 thread 拼成 prompt。这等价于把“对话历史”升级为“事件日志”，你可以自由决定哪些事件保留/怎么压缩/怎么标注。
+        - 这样做的收益（作者列了 5 点）：
+          - 信息密度：结构化呈现更容易让模型抓重点；
+          - 错误恢复：把错误信息以利于修复的格式呈现，并可在错误解决后隐藏/移除失败调用；
+          - 安全：可在进入 LLM 前过滤敏感数据；
+          - 灵活性：可不断试验不同结构（而不是被固定 chat schema 绑死）；
+          - token 效率：同等信息用更少 token 表达。
+        - 也明确“本指南关注如何从今天的模型里榨出更多”，因此刻意不讨论温度/top_p 等参数调优、训练/微调等；核心是：要有自由度去试各种 context 表达与裁剪策略。
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      文中示例使用较传统的 chat message 格式；现代 agent 接口（items/events/Responses-style streaming）可能长得不一样。
+      本课关注可迁移原则：你可以自定义上下文表达（event log → prompt）、提升 token/注意力效率，并在进入 LLM 前做过滤/裁剪。

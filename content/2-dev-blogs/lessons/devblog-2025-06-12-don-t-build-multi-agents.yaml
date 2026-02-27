@@ -1,0 +1,34 @@
+id: devblog-2025-06-12-don-t-build-multi-agents
+title: "Don't Build Multi-Agents"
+summary: |
+  文章的主张很强：多数情况下**不要**做 multi-agent 并行协作，因为它“很诱人但很脆弱”。核心失败点是：子 agent 很容易对任务细节产生不同理解与隐含假设，最后主 agent 得到的是一堆风格/假设冲突的产物，整合成本巨大。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2025-06-12
+      - 来源：Cognition
+      - URL：https://cognition.ai/blog/dont-build-multi-agents
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/Cognition/Agents_and_Tooling/2025-06-12__dont-build-multi-agents__08ba861ce0.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：multi-agent fragility、context passing、implicit decisions、single-threaded baseline、compression models
+      - 要点：
+        - 文章的主张很强：多数情况下**不要**做 multi-agent 并行协作，因为它“很诱人但很脆弱”。核心失败点是：子 agent 很容易对任务细节产生不同理解与隐含假设，最后主 agent 得到的是一堆风格/假设冲突的产物，整合成本巨大。
+        - 例子：把“做 Flappy Bird”拆成背景与小鸟两个子任务；子 agent 1 误做成马里奥风格，子 agent 2 做了不匹配的资产与运动学；主 agent 被迫在不一致的产物上收拾残局。作者强调：真实任务的“细微但关键的语境”更多，因此误解更常见。
+        - 仅把“原始任务描述”复制给子 agent 也不够：生产对话通常多轮、包含工具调用与中间决策；拆分发生时，很多隐含背景已分散在轨迹里。
+        - 原则 1：**共享 context，最好共享完整 agent traces，而不是只共享几条消息**。否则子 agent 在缺失决策背景时很难做出一致选择。
+        - 原则 2：**行动本身携带隐含决策**。子 agent 独立行动会把这些隐含决策固化到产物里；不同子 agent 的隐含决策一旦冲突，结果就会很糟。
+        - 作者建议的默认架构是“单线程线性 agent”：上下文连续、决策一致；只有在极长任务导致 context window 压力时，才考虑更复杂架构。
+        - 对超长任务的一个可行升级：引入专门的“压缩/总结模型”，把历史动作与对话压缩成关键事件与决策再继续（作者强调：这一步很难，需要投入；在某些领域甚至可能要微调小模型来做好压缩）。
+        - 对现实系统的观察：某些产品的 subagent 设计会刻意限制并行与职责（例如只让子 agent 回答问题而不并行写代码），本质是在减少“跨 agent 决策冲突”的机会。
+        - 总结成一句可迁移的要求：任何架构都必须让系统的每个行动尽可能基于“所有相关决策的上下文”；当做不到时，你要清楚自己愿意为可靠性付出多少复杂度。
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      文章的判断带有强烈的时间背景（2025 年 multi-agent 工程实践偏脆弱）；随着模型与编排工具进步，结论可能被部分削弱。
+      本课把它当作“默认保守 prior”：先单线程保证一致性，只有当并行收益明确且可治理时再上 multi-agent。

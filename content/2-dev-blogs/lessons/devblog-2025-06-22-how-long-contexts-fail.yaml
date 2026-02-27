@@ -1,0 +1,33 @@
+id: devblog-2025-06-22-how-long-contexts-fail
+title: "How Long Contexts Fail"
+summary: |
+  核心论点：更长的 context window 不会自动带来更好的 agent；把“所有文档+工具+历史”一股脑塞进 prompt，会让系统以多种方式失效。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2025-06-22
+      - 来源：DBreunig
+      - URL：https://www.dbreunig.com/2025/06/22/how-contexts-fail-and-how-to-fix-them.html
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/DBreunig/Agents_and_Tooling/2025-06-22__how-long-contexts-fail__8789b486d0.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：长上下文失败模式、poisoning/distraction/confusion/clash、tool overload、sharded prompts、agent reliability
+      - 要点：
+        - 核心论点：更长的 context window 不会自动带来更好的 agent；把“所有文档+工具+历史”一股脑塞进 prompt，会让系统以多种方式失效。
+        - 四类常见 context fail（作者用简明定义+案例说明）：
+          - Context Poisoning：错误/幻觉进入 context，并在后续被反复引用放大（例如游戏状态被“污染”导致 agent 追逐不可能目标）。
+          - Context Distraction：context 太长时，模型更倾向复用历史动作而不是利用训练知识综合新计划。文中引用案例：在某些 agentic 设置里，context 超过 **100k tokens** 后出现“重复历史动作”的倾向；并引用 Databricks 研究：Llama 3.1 405B 的正确率大约从 **32k** 开始下滑（小模型更早）。
+          - Context Confusion：context 中的“多余内容”被模型当成信号，导致低质量输出；最典型是**工具太多**。文中指出 Berkeley Function-Calling Leaderboard 显示：当工具数量 >1 时，所有模型表现都会变差；小模型更容易在“无相关工具”时仍错误调用工具。另一个例子：GeoEngine benchmark 给了 **46** 个工具，量化 Llama 3.1 8B 即使在 16k 窗口内也失败；把工具降到 **19** 个就成功。
+          - Context Clash：context 中出现互相矛盾的信息/假设，直接拉垮推理。文中引用一项研究把单轮 benchmark prompt “分片”到多轮对话里（信息总量相同但包含早期错误尝试），平均分下降 **39%**；OpenAI o3 从 **98.1 → 64.1**。原因是模型早期的错误假设与草率解答会留在历史里，影响后续最终回答。
+        - 对 agent 的含义：agents 正是“上下文膨胀”的高发场景——多轮、工具调用、检索、并行子任务都会制造大量历史与相互冲突的片段；因此这些失败模式会更严重。
+        - 文章对实践者的直接建议是“警惕兴奋剂式的长上下文乐观”，把长上下文主要用于 summarization 与事实检索；并预告后续应采用动态加载、上下文隔离/隔离区（quarantine）等工程手段来修复。
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      文中引用的具体数值/阈值/排行榜结果可能随模型迭代而变化。
+      本课把它当作“失败模式词典”（poisoning/distraction/confusion/clash）用于 debug，上面的数字主要作为量级直觉。

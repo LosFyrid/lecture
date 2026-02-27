@@ -1,0 +1,32 @@
+id: devblog-2026-02-20-openenv-in-practice-evaluating-tool-using-agents
+title: "OpenEnv in Practice: Evaluating Tool-Using Agents in Real-World Environments"
+summary: |
+  文章要解决的“研究到生产落差”问题：agent 在受控 demo 里表现好，但在真实系统中要面对多步推理、真实 API、权限、部分可观测与错误恢复，可靠性会显著下降；因此需要能对“真实环境”做标准化评估的框架。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-02-20
+      - 来源：HuggingFace
+      - URL：https://huggingface.co/blog/openenv-turing
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/HuggingFace/Agents_and_Tooling/2026-02-20__openenv-in-practice-evaluating-tool-using-agents-in-real-world-environments__9b87ffcc2c.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：OpenEnv、real-environment evaluation、gym API、MCP tool interface、calendar benchmark、multi-step reliability、structured errors
+      - 要点：
+        - 文章要解决的“研究到生产落差”问题：agent 在受控 demo 里表现好，但在真实系统中要面对多步推理、真实 API、权限、部分可观测与错误恢复，可靠性会显著下降；因此需要能对“真实环境”做标准化评估的框架。
+        - OpenEnv 的定位：把 agent evaluation 从模拟环境拉到真实系统，提供类似 gym 的 API（`reset/step/action/observation`），并用 MCP tool call 作为统一接口，让“从仿真到生产”的工具交互有一致的 schema 与日志结构。
+        - Calendar Gym（生产级日历环境）为什么是好 benchmark：看似简单的“安排会议”实际上包含时间推理、ACL 权限、多用户、多步骤链式操作、信息不完全（看不到别人日程细节），且每个 session 有状态并可隔离复现。
+        - 用例流程示例：连接 env→`ListToolsAction` 拿到工具清单与 input schema→调用 `calendars_list`→调用 `events_insert` 创建事件；强调“工具名 + JSON schema”是模型可用性的关键。
+        - 主要发现（跨域共性）：
+          - 多步推理是主要瓶颈：越长的 workflow，越容易在步骤串联/顺序上出错。
+          - 任务表述的歧义会显著拉低成功率：当给出明确 calendar identifier 时成功率接近 **90%**，但换成自然语言描述（“我的主日历/那个团队日历”）成功率降到约 **40%**。工程含义：需要在 agent loop 里增加 lookup/validation，而不是完全依赖 LLM 自己消解引用。
+          - “选对工具”不够：失败里超过一半来自**参数不符合 schema**或**调用顺序不对**，即使工具选择正确；环境与错误反馈设计决定了 agent 能否自我修复。
+        - 附录给出三类生产常见错误，并展示“结构化错误 payload”如何帮助 agent 修复：
+          - schema validation error（缺字段/类型不对/嵌套不对）：建议在 prompt 里给一个 canonical 正确示例，并返回结构化缺失字段信息，促使模型修复重试；
+          - permission error（401/403）：返回可操作 remediation（需要哪些 OAuth scopes、是否需要重连/授权），避免模型盲重试；
+          - datetime/format error：强调 RFC3339 + timezone offset（例如 `2026-02-11T09:30:00-05:00`），并给正确示例锚定行为。
+        - 对课程的可迁移结论：评估 tool-using agents 必须在真实约束下测（权限/歧义/多步/状态）；同时 tool schema 与错误返回要结构化，才能让模型真正“自修复”。

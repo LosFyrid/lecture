@@ -1,0 +1,147 @@
+id: agent-skills-602-troubleshooting-and-checklist
+title: "排障与检查清单：从“上传失败/不触发/不按指令”到稳定运行"
+summary: |
+  Skill 的常见失败模式高度集中：上传失败（结构/命名/YAML 错）、不触发或乱触发（description 写法问题）、工具调用失败（MCP 连接/工具名/鉴权）、不按指令（正文太散/太长/太含糊）、上下文过大（没有渐进式加载）。本课给出可复用的排障流程与检查清单。
+items:
+  - type: md
+    title: 学习目标
+    body: |
+      学完本课，你应该能够：
+
+      - 用“先结构、再触发、再执行、再性能”的顺序排障（不要乱试）。
+      - 快速定位问题属于：命名/格式 → frontmatter → instructions → MCP/工具 → 上下文规模。
+      - 在发布前用 checklist 做一次“硬性合规检查”。
+
+  - type: md
+    title: 1) 上传失败（最常见：文件名与 YAML）
+    body: |
+      常见报错：找不到 SKILL.md  
+      - 原因：文件名不精确（大小写/拼写）  
+      - 处理：确认 skill 文件夹内确实有 `SKILL.md`
+
+      常见报错：Invalid frontmatter  
+      - 原因：YAML 分隔符缺失、引号未闭合、缩进错误  
+      - 处理：确保：
+
+      ```yaml
+      ---
+      name: my-skill
+      description: Does things
+      ---
+      ```
+
+      常见报错：Invalid skill name  
+      - 原因：name 有空格/大写/下划线  
+      - 处理：改为 kebab-case（小写 + 中划线）
+
+  - type: md
+    title: 2) Skill 不触发（优先修 description）
+    body: |
+      表现：skill 几乎从不自动加载。
+
+      先做一个“诊断提问”（材料给的思路）：
+      - 让 Claude 回答：**“什么时候应该使用这个 skill？”**  
+      - Claude 通常会复述 description 的含义  
+      - 你就能立刻发现：触发短语缺了哪些同义表达/术语/文件类型
+
+      快速自检：
+      - description 是否太泛（例如 “Helps with projects”）
+      - 是否写了用户真的会说的话（而不是作者视角的术语）
+      - 是否包含关键文件类型（如适用）
+
+  - type: md
+    title: 3) Skill 触发过度（加负触发 + 收窄范围）
+    body: |
+      表现：skill 在不相关的问题上也加载。
+
+      常用解法：
+      1) **加负触发**（Do NOT use...）  
+         - 把“不要用在什么场景”写进 description
+      2) **收窄描述**  
+         - “Processes documents” → “Processes PDF legal documents for contract review”
+      3) **澄清边界**  
+         - 明确只覆盖某类工作流，不覆盖“泛领域问答”
+
+  - type: md
+    title: 4) MCP 连接/工具调用失败（先确认不是 Skill 的错）
+    body: |
+      表现：skill 触发了，但工具调用失败。
+
+      排查顺序（先把 MCP 自身排除）：
+      1) 确认 MCP server 已连接（产品设置里应显示 Connected）
+      2) 检查鉴权（API key / OAuth token 是否过期、权限 scope 是否足够）
+      3) 不用 skill，直接让 Claude 调 MCP 工具做一个最小调用  
+         - 如果也失败：问题在 MCP，不在 skill
+      4) 核对工具名（大小写敏感、是否与文档一致）
+
+  - type: md
+    title: 5) 触发了但“不按指令做”（instructions 写法问题）
+    body: |
+      常见原因与修复：
+
+      - 指令太冗长  
+        - 用编号步骤 + bullet points  
+        - 把长文档移到 `references/`
+      - 关键约束埋得太深  
+        - 把 “CRITICAL/IMPORTANT” 放在顶部  
+        - 必要时重复一次关键要求（不要指望模型一定记住）
+      - 语言含糊  
+        - “Validate properly” → 改成可检查的条件列表
+
+      进阶：把关键校验做成脚本更稳定  
+      - 语言解释是概率性的  
+      - 校验脚本是确定性的  
+      - 对 schema/格式/依赖检查，优先 `scripts/validate.py`
+
+      备注（材料的经验）：把“认真做/别偷懒”的提示放到用户 prompt 里，往往比埋在 SKILL.md 更有效。
+
+  - type: md
+    title: 6) 上下文过大（变慢/质量下降）
+    body: |
+      典型原因：
+      - SKILL.md 太大，加载后噪声淹没任务
+      - 同时启用了过多 skills（上下文拥挤）
+      - 没有按渐进式加载拆分（把所有内容都塞在 SKILL.md）
+
+      常用解法：
+      - 把细节移到 `references/`，在正文里用“先看哪个文件”的方式引用
+      - 控制 SKILL.md 规模（材料建议保持在 ~5000 words 以内）
+      - 建议用户“按需启用 skills”，必要时做 skills pack（按场景分组）
+
+  - type: md
+    title: 发布前/发布后检查清单（Quick Checklist）
+    body: |
+      你可以把下面当成“发布门槛”：
+
+      Before you start
+      - [ ] 明确 2-3 个 use case
+      - [ ] 确认需要哪些 tools（内建/MCP/脚本）
+      - [ ] 看过至少 1 个高质量示例 skill（对齐质量预期）
+
+      During development
+      - [ ] 文件夹名 kebab-case
+      - [ ] `SKILL.md` 文件存在且命名完全正确
+      - [ ] frontmatter 有 `---` 分隔符
+      - [ ] name 合规（kebab-case，无空格/大写）
+      - [ ] description 同时包含 WHAT + WHEN（触发短语具体）
+      - [ ] frontmatter/正文均无 `< >`（安全限制）
+      - [ ] 有示例、有错误处理、有 references 链接（如需要）
+
+      Before upload
+      - [ ] 触发测试：明显触发/改写触发/不相关不触发
+      - [ ] 功能测试：流程跑通、错误可解释
+      - [ ] 若有 MCP：最小工具调用可独立成功
+
+      After upload
+      - [ ] 真实对话里再测 3-5 次
+      - [ ] 观察 under/over-triggering 信号并迭代 description
+      - [ ] 记录版本（metadata.version）与变更点
+
+  - type: md
+    layout: inline
+    body: |
+      来源材料：
+
+      - `original/4-26-02-27/The-Complete-Guide-to-Building-Skill-for-Claude.pdf`
+      - 重点页：Troubleshooting（第 25–27 页）、Quick checklist（第 30 页）
+

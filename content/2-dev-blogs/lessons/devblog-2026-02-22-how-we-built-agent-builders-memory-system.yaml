@@ -1,0 +1,37 @@
+id: devblog-2026-02-22-how-we-built-agent-builders-memory-system
+title: "How we built Agent Builder’s memory system"
+summary: |
+  为什么 Agent Builder（任务型、非通用 agent）必须优先做 memory：它不是“什么都干的 ChatGPT”，而是同一类工作反复执行；跨会话复用率高，如果没有 memory，用户会不断重复同样的偏好/规则，体验会很差。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-02-22
+      - 来源：LangChain
+      - URL：https://blog.langchain.com/how-we-built-agent-builders-memory-system
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LangChain/Agents_and_Tooling/2026-02-22__how-we-built-agent-builder-s-memory-system__78c62a28bf.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：agent memory、files-as-memory、AGENTS.md、skills、tools.json、virtual filesystem、prompting/validation、human approval、compaction
+      - 要点：
+        - 为什么 Agent Builder（任务型、非通用 agent）必须优先做 memory：它不是“什么都干的 ChatGPT”，而是同一类工作反复执行；跨会话复用率高，如果没有 memory，用户会不断重复同样的偏好/规则，体验会很差。
+        - 采用 COALA 的三类记忆定义来对齐设计：procedural（行为规则）、semantic（事实/知识）、episodic（历史轨迹）。他们在初版主要覆盖前两类，episodic 计划后补。
+        - 核心实现选择：把 memory 表示成**一组文件**，因为 LLM 很擅长“像人一样”浏览与编辑文件系统；这样 agent 不需要特殊 memory API，只要给它文件读写能力即可自我更新。
+        - 尽量用标准化约定提高可迁移性：
+          - `AGENTS.md`：核心指令（procedural memory 的主载体）；
+          - skills：特定任务的专门说明（semantic/procedural 的细分）；
+          - `subagents/`：采用类似 Claude Code 的子 agent 格式；
+          - `tools.json`：用于 MCP 接入的工具清单（刻意不是 `mcp.json`），因为他们希望只暴露 MCP server 的**工具子集**，避免 context overflow。
+        - 基础设施层面并非真的用 OS 文件系统：后端把这些“文件”存到 Postgres，并对 agent 暴露为“虚拟文件系统”（好处是 infra 更易维护/高效，且存储层可插拔到 S3/MySQL 等）。
+        - Agent Builder 能做到 no-code 的原因：底层使用通用 harness（Deep Agents）抽象掉大量复杂 context 工程（例如对话总结、tool 结果卸载、计划/待办追踪），用户只需要用相对简单的配置与自然语言反馈来迭代。
+        - 一个很具体的“memory 自增”例子：用户最开始只有一句 `Summarize meeting notes.`；第一周纠正“用 bullet points”；第二周再纠正“把 action items 单列”；随着使用不断累积偏好与边界条件，`AGENTS.md` 逐步长成结构化的“总结偏好规范”。作者强调：规范不是一开始写完，而是通过纠错迭代“长出来”的。
+        - 关键工程教训：
+          - 最难的是 prompting：什么时候该记、什么时候不该记、该写到 AGENTS.md 还是 skill、skill 文件格式等，主要靠 prompt 迭代解决（甚至需要专人全职做 prompting）。
+          - 必须做**文件类型校验**：`tools.json`、skills frontmatter 等都有 schema；若 agent 写出无效文件，应在提交前验证并把错误反馈回 LLM 让其修复。
+          - agent 擅长“追加具体条目”，但不擅长“抽象与压缩（compact）”：会把很多具体例外都记下来而不总结成规则；因此需要显式提示它做归纳/压缩。
+          - memory 更新默认 human-in-the-loop：所有 memory 编辑需人类确认，以降低 prompt injection 攻击面；提供可关闭的 “yolo mode” 作为权衡选项。
+        - 这套 files-as-memory 的副作用是收益：更像“可移植的 agent 包”（markdown/json），不依赖 DSL，方便迁移到其他 harness（Deep Agents CLI、Claude Code、OpenCode 等）。
+        - 未来方向：把历史对话作为文件实现 episodic memory；后台定时反思/归纳（cron）；显式 `/remember` 命令；对 memory 做语义检索；引入 user/org 级别的层次化 memory。

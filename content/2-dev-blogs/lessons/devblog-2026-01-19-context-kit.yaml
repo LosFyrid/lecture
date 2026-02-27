@@ -1,0 +1,33 @@
+id: devblog-2026-01-19-context-kit
+title: "context-kit"
+summary: |
+  项目定位：不是 agent framework，而是一个**最小、框架无关**的 context engineering toolkit（“Do the simplest thing that works”），用纯函数 + `Context` dataclass 帮你把概念落到代码上。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-01-19
+      - 来源：ContextKit
+      - URL：https://github.com/keli-wen/context-kit
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/ContextKit/Agents_and_Tooling/unknown-date__context-kit__a8ff5c2eec.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：最小化 context engineering 工具箱、Select/Write/Compress、Context dataclass、tool result clearing、memory persistence、progressive disclosure
+      - 要点：
+        - 项目定位：不是 agent framework，而是一个**最小、框架无关**的 context engineering toolkit（“Do the simplest thing that works”），用纯函数 + `Context` dataclass 帮你把概念落到代码上。
+        - 背后的问题意识：模型更强后瓶颈转向“如何管理 context”；context rot 说明上下文越满性能会退化，因此需要把 context 当作“有限且边际收益递减”的资源。
+        - 采用 4-pillar 心智模型（其中实现前 3 个）：
+          - Select：JIT 检索，按需拉取信息；
+          - Write：把信息写到窗外（持久化）；
+          - Compress：在保信号前提下缩小上下文；
+          - Isolate：多 agent/隔离（由框架层处理）。
+        - `Context` dataclass：支持从不同 provider 的 message 格式导入/导出（OpenAI / Anthropic / Google），并提供压缩与 token 估算等能力。
+        - 两类压缩手段：
+          - `compress_by_rule`：规则压缩（重点是**清旧 tool results** 与可选的 thinking blocks），只保留最近 `keep_tool_uses=N`；可对某些工具设置 `exclude_tools`；可把被清除内容归档到 memory，并在原位置留下“可检索引用”（提示用 `memory_read(...)` 取回）。
+          - `compress_by_model`：用 LLM 对旧对话做总结压缩（`instruction` 指定保留决策/未解决问题、丢弃探索性尝试；`keep_recent` 控制保留最近轮次）。
+        - Select（JIT 检索）的实现遵循 progressive disclosure：先 `list_dir` 获得地图 → `grep` 缩小范围 → `read_file` 按需加载片段，从低 token 成本逐步逼近关键上下文。
+        - Memory 模块：在 context window 外做文件式 CRUD（create/view/str_replace/insert/delete），让 agent 可以把“稳定信息/笔记/清理出的结果”放到窗外。
+        - Tool integration：可导出 memory/select 的工具定义，便于接入不同 agent 框架；同时提供跨 provider 的 LLM adapter（含对 thinking/reasoning 块的实验性兼容）。

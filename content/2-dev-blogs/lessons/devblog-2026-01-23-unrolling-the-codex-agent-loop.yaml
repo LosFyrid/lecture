@@ -1,0 +1,31 @@
+id: devblog-2026-01-23-unrolling-the-codex-agent-loop
+title: "Unrolling the Codex agent loop"
+summary: |
+  文章把“Codex（CLI）背后的 harness/安全带”拆成一个可复用的心智模型：harness 负责在**用户 ↔ 模型 ↔ 工具**之间编排循环（agent loop），并把工具执行带来的副作用（写文件/改代码）与最终给用户的 assistant message 一起当作“输出”。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-01-23
+      - 来源：OpenAI
+      - URL：https://openai.com/index/unrolling-the-codex-agent-loop
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/OpenAI/Agents_and_Tooling/2026-01-23__unrolling-the-codex-agent-loop__ae10eb4597.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：agent loop、harness、tool calling、Responses API、SSE streaming、prompt caching、statelessness、ZDR、compaction、context window
+      - 要点：
+        - 文章把“Codex（CLI）背后的 harness/安全带”拆成一个可复用的心智模型：harness 负责在**用户 ↔ 模型 ↔ 工具**之间编排循环（agent loop），并把工具执行带来的副作用（写文件/改代码）与最终给用户的 assistant message 一起当作“输出”。
+        - 一个 turn 的结构：先把用户输入整理进 prompt → 调一次推理（inference）→ 模型要么产出最终 assistant message，要么发出 tool call；若是 tool call，harness 执行并把**tool output 追加回 prompt**，再重新调用模型；直到模型停止发 tool call 并输出 assistant message（这被视为该 turn 的终止状态）。
+        - 多轮对话（thread）会让 prompt 持续增长：新一轮的 `input` 必须包含历史中的 message、tool call、tool output 等项目。作者强调：对 agent 来说，一个 turn 内可能有很多次 “推理↔工具”迭代，但对用户仍表现为一次对话回合。
+        - 以 Responses API 为例，输入不是“纯文本”，而是一个 **items 数组**（例如 message / reasoning / function_call / function_call_output 等），这决定了“你怎么表示工具调用与结果”会直接影响后续推理与可观察性。
+        - Streaming 采用 SSE：服务端按 `response.*` 事件流推送；像 `response.output_text.delta` 用于 UI 流式展示，而 `response.output_item.added` 这类事件会被 harness 转成内部事件对象，并**追加到下一次请求的 input**，保证状态可延续。
+        - 性能直觉：随着对话增长，把完整 JSON 每次都带上看似“二次方膨胀”；API 有 `previous_response_id` 这类机制可减轻，但 Codex 选择**不使用**，优先保持请求**完全无状态（stateless）**，并支持 Zero Data Retention（ZDR）配置。
+        - 解释 ZDR 与 `encrypted_content`：即使不在服务端存 conversation state，也可以保留“推理相关的受保护内容”以便在服务端解密使用（文中强调：OpenAI 持久化密钥而不持久化数据），从而兼容“无状态请求”与“保留推理收益”。
+        - 采样成本通常远高于网络传输，因此效率重点是**prompt caching**：缓存命中要求“新 prompt 的前缀与旧 prompt 完全一致”。因此要把静态内容（指令/示例/工具定义）放前面，把变化内容放后面。
+        - 文中列举会导致 cache miss 的典型变更：对话中途改变 `tools` 列表、切换 `model`、改变 sandbox 配置/approval mode/当前工作目录（cwd）。其中一个真实坑：MCP 工具枚举顺序不稳定会导致 cache miss；而 MCP 的 `notifications/tools/list_changed` 在长对话中途触发也可能带来昂贵 miss。
+        - 为了尽量保持 prefix 不变，Codex 的做法是：当权限/沙箱配置或 cwd 改变时，不去改旧的输入项，而是**追加新的 message**来表达变化（例如追加新的 `<permissions instructions>` 或 `<environment_context>` 项）。
+        - 另一个关键资源是 context window：prompt 变长会逼近上下文上限（且上限包含 input+output）。Codex 的策略是**compaction**：超过阈值就用更小的 items 列表替换 `input`，保留“代表性的高保真摘要”。
+        - compaction 的演进：早期需要用户手动 `/compact`（让模型总结再作为新 input）；后来 Responses API 提供 `/responses/compact`，返回包含 `type=compaction` 的条目（带不透明 `encrypted_content`，用于保留模型的“潜在理解”）。Codex 现在会在 `auto_compact_limit` 超过时自动触发。

@@ -1,0 +1,34 @@
+id: devblog-2026-02-18-measuring-ai-agent-autonomy-in-practice
+title: "Measuring AI agent autonomy in practice"
+summary: |
+  文章用第一方数据回答“现实里 agent 到底有多自治”：作者用隐私保护工具 CLIO，分析了数百万次人机交互（Claude Code + 公共 API 的 tool calls），关心自治程度、经验效应、应用领域、风险水平等。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-02-18
+      - 来源：Anthropic
+      - URL：https://www.anthropic.com/research/measuring-agent-autonomy
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/Anthropic/Research_and_Benchmarks/2026-02-18__measuring-ai-agent-autonomy-in-practice__9f90189258.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：agent autonomy metrics、auto-approve vs interrupt、agent-initiated stops、risk vs reversibility、post-deployment monitoring
+      - 要点：
+        - 文章用第一方数据回答“现实里 agent 到底有多自治”：作者用隐私保护工具 CLIO，分析了数百万次人机交互（Claude Code + 公共 API 的 tool calls），关心自治程度、经验效应、应用领域、风险水平等。
+        - 一个可操作的 agent 定义：**具备 tools 并能采取行动的 AI 系统**（运行代码、调用 API、发消息等）。他们强调：研究 tool 使用能比“看聊天内容”更直接地刻画 agent 在世界中的行为。
+        - Claude Code（可串起完整 session）侧的自治趋势：
+          - 最长尾的 turn duration（让 Claude 连续工作不被打断的时间）在 3 个月里几乎翻倍：从 **<25 分钟 → >45 分钟**（99.9 分位）；且增长在多个模型发布之间较平滑，暗示自治提升不只是“换了更强模型”，也来自用户信任/任务更雄心/产品本身优化。
+          - 经验会改变监督方式：新用户（<50 sessions）大约 **20%** 使用 full auto-approve；到非常熟练（约 750 sessions）上升到 **>40%**。同时，熟练用户虽然更常 auto-approve，但也更常在执行中 interrupt——从“逐步审批”转向“放手跑、需要时介入”。
+          - agent 自己停下来问澄清（agent-initiated stops）比人类打断更常见；在最复杂任务上，Claude 停下来问问题的频率是人类打断的 **2×+**，说明“模型主动降低自治”也是一种重要监督机制。
+        - 公共 API（只能在 tool-call 粒度观察）侧的风险图景：
+          - 大多数动作低风险且可逆；软件工程约占 tool calls 的 **~50%**，但在医疗、金融、网络安全等领域已有早期探索。
+          - 他们估计：约 **80%** 的 tool calls 看起来带有至少一种 safeguard（权限限制或人工审批等），约 **73%** 看起来有某种 human-in-the-loop，且只有 **0.8%** 的动作看起来不可逆（例如给客户发邮件）。
+        - Looking ahead / 建议（对 agent 工程可迁移）：
+          - 模型与产品团队要投资**post-deployment monitoring**：上线前 eval 看不出“人如何监督/信任如何形成/自治如何增长”，需要隐私保护的真实世界监控基础设施；特别是要解决“如何把 API 的独立请求串成 session”这类测量难题。
+          - 模型侧应训练“识别不确定性并主动向人求助”的能力，作为审批/权限控制之外的安全属性。
+          - 产品侧应为“监控+介入式监督”设计：给用户可信可见性（可观察 agent 在做什么）与轻量的干预机制（可及时 redirect），而不只是把人塞进审批链。
+          - 现在还太早去强制规定某种交互监督模式（例如要求每步都审批）：因为熟练用户往往会自然转向“少审批、多监控”，强制逐步审批可能只增加摩擦而不提升安全；更好的目标是确保人类“有能力有效监控并介入”。
+        - 文章的中心结论：自治不是模型的固定属性，而是模型行为、用户监督策略、产品设计共同塑造的“涌现特性”；因此需要现实世界测量与持续监控来做安全部署。

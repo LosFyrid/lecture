@@ -1,0 +1,34 @@
+id: devblog-2026-01-30-practical-security-guidance-for-sandboxing-agent
+title: "Practical Security Guidance for Sandboxing Agentic Workflows and Managing Execution Risk | NVIDIA Technical Blog"
+summary: |
+  威胁模型：coding agents/“computer use agents” 通过终端运行工具，常拿到与用户同等权限，因此攻击面大。主要威胁是 **indirect prompt injection**：恶意指令藏在被 LLM 读取的内容里（恶意 repo/PR、git history、`.cursorrules`、CLAUDE/AGENT.md、恶意 MCP 响应等），诱导 agent 以用户权限做危险动作（外泄、持久化、RCE 等）。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-01-30
+      - 来源：NVIDIA
+      - URL：https://developer.nvidia.com/blog/practical-security-guidance-for-sandboxing-agentic-workflows-and-managing-execution-risk
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/NVIDIA/Safety_and_Security/2026-01-30__practical-security-guidance-for-sandboxing-agentic-workflows-and-managing-execut__36281eb7d3.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：indirect prompt injection、OS-level sandboxing、network egress control、workspace boundary、config write protection、secret injection、lifecycle management
+      - 要点：
+        - 威胁模型：coding agents/“computer use agents” 通过终端运行工具，常拿到与用户同等权限，因此攻击面大。主要威胁是 **indirect prompt injection**：恶意指令藏在被 LLM 读取的内容里（恶意 repo/PR、git history、`.cursorrules`、CLAUDE/AGENT.md、恶意 MCP 响应等），诱导 agent 以用户权限做危险动作（外泄、持久化、RCE 等）。
+        - 仅靠“人工审批”有可用性风险：频繁审批造成摩擦→用户习惯性点“允许”，反而降低安全；需要在自动化与人类监督之间找到平衡，并做系统性隔离。
+        - NVIDIA AI Red Team 给出的**必选（mandatory）控制**（用来挡住最严重的注入攻击）：
+          - Network egress 控制：禁止任意外连，阻断数据外泄/远程 shell；
+          - 禁止写 workspace 外部文件：避免持久化、逃逸与多类 RCE 技术；
+          - 禁止写配置文件（无论位置）：防止篡改 hooks/skills/本地 MCP 配置等“在沙箱外触发的执行入口”。
+        - 进一步的**推荐控制**（降低枚举与探索、限制 hooks/MCP/内核利用等）：
+          - 禁止读 workspace 外文件（或做分级 allowlist/denylist）；
+          - 尽量把整个 IDE 以及其衍生执行（hooks、MCP 启动脚本、skills、tool calls）都置于沙箱内，必要时用不同 OS user 隔离；
+          - 用虚拟化隔离沙箱内核与宿主机内核（microVM/Kata/full VM）；
+          - 对“会违反默认 deny 隔离策略”的动作，**每次都要单独审批**（allow-once/run-many 不够；审批不可缓存持久化）；
+          - Secret injection：不要把宿主机的环境变量/凭据全量继承给沙箱，改为按任务最小注入（最好短期 token、通过 broker 发放）；
+          - 生命周期管理：防止沙箱长期累积依赖、缓存凭据、知识产权等；要么用一次性/短命沙箱，要么定期重建到干净状态。
+        - 为什么要 OS-level 强制而不是应用层拦截：agent 工作流天然需要任意代码执行；应用层可以拦“某次 tool 调用”，但一旦进入子进程就失去可见性与控制；攻击者常用“间接调用”绕过 allowlist。OS-level（例如 macOS Seatbelt）能覆盖沙箱内所有进程与衍生进程，避免通过间接路径访问高风险能力。
+        - 可迁移的总原则：把“默认 deny”做成系统地基；把审批当作例外且不可缓存；把 secrets 与生命周期管理当作一等公民；并持续验证隔离策略随 agent 能力与集成扩展而调整。

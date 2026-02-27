@@ -1,0 +1,27 @@
+id: agent-dev-201-t04-tools-sandboxes-interop
+title: "Track 4 - Tools / Sandboxes / Interop：MCP、工具设计与执行边界"
+description: |
+  把 agent 的“能用工具”升级为“可互操作、可验证、可隔离、可审计”的执行系统：
+  覆盖 MCP、开放推理/事件标准、sandbox 连接架构与执行风险控制。
+modules:
+  - id: m01-mcp-tool-definition-call
+    title: "MCP 工具规范（可互操作的 tool definition / call / result）"
+    lessons:
+      - devblog-2025-11-25-tools-model-context-protocol
+  - id: m02-open-responses-agent-loo
+    title: "开放推理/事件标准：Open Responses（面向 agent loop / tools / routers）"
+    lessons:
+      - devblog-2026-01-15-open-responses-what-you-need-to-know
+  - id: m03-skills-vs-mcp
+    title: "Skills vs MCP：何时用“代码技能”，何时用“协议化工具”"
+    lessons:
+      - devblog-2026-02-03-skills-vs-mcp-tools-for-agents-when-to-use-what
+  - id: m04-sandbox-agent
+    title: "Sandbox 连接模式（Agent ↔ 执行环境）"
+    lessons:
+      - devblog-2026-02-10-the-two-patterns-by-which-agents-connect-sandbox
+  - id: m05-os
+    title: "执行风险与安全控制（间接注入、最小权限、OS 级隔离）"
+    lessons:
+      - devblog-2026-01-30-practical-security-guidance-for-sandboxing-agent
+      - devblog-2025-12-15-secure-filesystem-access-for-coding-agents-llama

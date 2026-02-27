@@ -1,0 +1,37 @@
+id: devblog-2025-06-23-context-engineering-for-agents
+title: "Context Engineering for Agents"
+summary: |
+  文章把 LLM 应用比作 OS：LLM 像 CPU，context window 像 RAM；context engineering 就像 OS 的内存管理——在每一步把“刚好够用的信息”塞进有限工作内存里。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2025-06-23
+      - 来源：RLanceMartin
+      - URL：https://rlancemartin.github.io/2025/06/23/context_engineering
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/RLanceMartin/Safety_and_Security/unknown-date__context-engineering-for-agents__4796ddb0a5.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：Write/Select/Compress/Isolate、scratchpad、memory types、tool selection、RAG for tools、auto-compact、trimming、sandbox/state isolation
+      - 要点：
+        - 文章把 LLM 应用比作 OS：LLM 像 CPU，context window 像 RAM；context engineering 就像 OS 的内存管理——在每一步把“刚好够用的信息”塞进有限工作内存里。
+        - 对 agent 来说，长任务+累积 tool feedback 会迅速推高 token，用长上下文会出现 poisoning/distraction/confusion/clash 等失败；因此作者把常见做法归纳为 4 类策略：**write、select、compress、isolate**。
+        - Write（写到窗外）：把信息持久化到 context window 之外。
+          - Scratchpad：做计划/记要点，既可以是“写文件”的 tool，也可以是运行时 state object 的字段。
+          - Long-term memory：跨会话记忆（反思式写入、周期性综合）在产品里越来越常见。
+        - Select（选回窗内）：在需要时把 scratchpad/记忆/知识选回 context。
+          - 记忆类型借用 COALA：episodic（示例）、procedural（规则/指令）、semantic（事实）。
+          - “总是注入固定文件（rules）”很简单，但当记忆集合变大就需要检索/索引（embedding、knowledge graph 等）；选择做不好会带来“意外注入”（例如把不该出现的位置/隐私信息塞进生成），让用户觉得“context 不再属于我”。
+        - Select（工具层面）：工具太多会让模型困惑（描述重叠、schema 多）。一种应对是对“工具描述”做检索（RAG over tool descriptions），文中引用工作显示工具选择准确率可提升约 3 倍。
+        - Select（知识层面）：代码场景下 embedding 检索会随代码库规模变大而变得不可靠，需要混合 grep/file search、knowledge graph、reranking 等多种机制。
+        - Compress（压缩）：只保留完成任务所需 token。
+          - Summarization：当轨迹跨上百轮或工具输出很重时，用总结压缩（文中例子：超过 **95% context window** 触发 auto-compact）；可用 recursive/hierarchical 总结。
+          - 在架构上也可在“工具边界”或“agent-交接边界”做总结，减少 hand-off token；但想保留关键决策可能需要专门优化甚至微调模型。
+          - Trimming/Pruning：用启发式移除旧消息，或用训练出来的 pruner（如 Provence）。
+        - Isolate（隔离）：把上下文拆开，避免互相污染。
+          - Multi-agent：子 agent 各自 context window，分离关注点，但 token 开销巨大（文中引用：multi-agent 可达 chat 的 **15×**）。
+          - 环境隔离：CodeAgent 输出代码在 sandbox 里运行，只有选定的返回值回传给 LLM；token-heavy 对象可以留在环境 state 里。
+          - State schema：运行时 state object 本身也是隔离机制——只把 messages 字段暴露给 LLM，其它字段更选择性地使用。

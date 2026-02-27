@@ -1,0 +1,35 @@
+id: devblog-2026-02-17-improving-deep-agents-with-harness-engineering
+title: "Improving Deep Agents with harness engineering"
+summary: |
+  目标与结果：作者把“harness（安全带）工程”当作主要杠杆，在**不换模型**（固定 `gpt-5.2-codex`）情况下，把 deepagents-cli 在 Terminal Bench 2.0 的成绩从 **52.8 → 66.5**（从 Top 30 到 Top 5）。核心观点：模型是“尖刺状智能”，harness 负责把它塑形成你要的行为分布（性能/成本/延迟/可靠性）。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-02-17
+      - 来源：LangChain
+      - URL：https://blog.langchain.com/improving-deep-agents-with-harness-engineering
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LangChain/Agents_and_Tooling/2026-02-17__improving-deep-agents-with-harness-engineering__f51c3a95aa.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：harness engineering、agent traces、self-verification、doom loop、middleware/hooks、reasoning budget、benchmark iteration、Terminal Bench
+      - 要点：
+        - 目标与结果：作者把“harness（安全带）工程”当作主要杠杆，在**不换模型**（固定 `gpt-5.2-codex`）情况下，把 deepagents-cli 在 Terminal Bench 2.0 的成绩从 **52.8 → 66.5**（从 Top 30 到 Top 5）。核心观点：模型是“尖刺状智能”，harness 负责把它塑形成你要的行为分布（性能/成本/延迟/可靠性）。
+        - 他们刻意把可优化空间压缩为三类旋钮：**System Prompt、Tools、Middleware**（围绕模型调用与 tool 调用的 hooks/中间件），而不是在无穷多“技巧”里迷路。
+        - 外循环方法论：用 tracing（记录输入/输出/工具调用序列+token/延迟等）做规模化错误分析；并把“trace analyzer”做成可复用的 agent skill：拉取实验 traces → 并行启动多个分析 agents → 主 agent 汇总失败模式与修改建议 → 落到对 harness 的小步迭代。作者把它类比为 boosting：盯着错题改。
+        - 重要提醒：trace 驱动的改动很容易过拟合某些任务；需要（可选）人类在环检查建议是否是“投机取巧”，避免在其他任务上回归。
+        - 关键改动 1：强制进入 **Build–Verify** 闭环。常见失败是 agent 写完方案、浏览一眼代码、觉得“看起来对”就停；而正确的 agentic coding 需要把“测试/验证”变成默认步骤，给模型明确的工作流提示：
+          - Planning & Discovery：读任务、扫代码库、先想“怎么验证正确性”再定计划；
+          - Build：围绕验证目标实现；必要时补测试，覆盖 happy path + edge cases；
+          - Verify：跑测试、读完整输出、对照原始需求（不是对照自己写的代码）；
+          - Fix：基于失败信号迭代修复。
+        - 关键改动 2：对“doom loop（厄运循环）”做工程化干预：模型一旦选定错误路线会反复在同一文件做细微改动（一些 trace 中同文件 10+ 次）。他们用 `LoopDetectionMiddleware` 通过 tool hooks 统计每个文件的 edit 次数，超过阈值 `N` 就往上下文里注入提示（“考虑重新思考方案”）以打断短视循环。
+        - 关键改动 3：推理预算（reasoning effort）要分配而不是一刀切。Reasoning 过高会显著增加 token/time 并触发 benchmark 超时；他们测试到“全程 xhigh”得分 **53.9%**，而“全程 high”能到 **63.6%**。经验性策略是 “reasoning sandwich”：在**规划**与**最终验证**阶段用更高推理，在实现阶段用较低推理，从而兼顾质量与超时风险。
+        - 总结出的可迁移原则：
+          - harness 的本质是“替 agent 做 context 工程”：把环境/约束/评测标准/最佳实践明确交付给模型；
+          - 用 tracing 把“模型推理问题”和“工具/指令缺失问题”一起定位；
+          - 对已知弱点加短期护栏（loop detection、强制验证），并预期随着模型提升这些护栏会逐步退场；
+          - 换模型前，先把“迭代 harness 的闭环”跑起来。

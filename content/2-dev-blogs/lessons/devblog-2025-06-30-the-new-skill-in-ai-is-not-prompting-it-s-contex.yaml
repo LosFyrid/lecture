@@ -1,0 +1,36 @@
+id: devblog-2025-06-30-the-new-skill-in-ai-is-not-prompting-it-s-contex
+title: "The New Skill in AI is Not Prompting, It's Context Engineering"
+summary: |
+  文章用一句话把“context engineering”的工程直觉说清：决定 agent 成败的往往不是模型能力，而是你给它的“工作记忆”（context）质量；很多失败是 context failure 而非 model failure。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2025-06-30
+      - 来源：PhilSchmid
+      - URL：https://www.philschmid.de/context-engineering
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/PhilSchmid/Agents_and_Tooling/2025-06-30__the-new-skill-in-ai-is-not-prompting-it-s-context-engineering__694e532ce6.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：context 定义扩展、demo vs product、动态 context 系统、工具+记忆+结构化输出
+      - 要点：
+        - 文章用一句话把“context engineering”的工程直觉说清：决定 agent 成败的往往不是模型能力，而是你给它的“工作记忆”（context）质量；很多失败是 context failure 而非 model failure。
+        - 把“context”从单条 prompt 扩展为“模型在生成前看到的一切”，并列出常见组成：
+          - Instructions/System prompt（含规则/示例等）
+          - User prompt（当前任务）
+          - State/History（短期记忆：当前对话轨迹）
+          - Long-term memory（跨会话偏好/项目摘要/事实）
+          - Retrieved info（RAG：文档/DB/API 等外部知识）
+          - Available tools（可调用函数/工具定义）
+          - Tool responses（工具返回的观测）
+          - Structured output（输出 schema/格式约束）
+        - 用“约会/会议安排”举例解释为什么 context 决定体验：一个“便宜 demo”只看到一句邮件会给出机械追问；一个“像魔法一样”的 agent 在调用 LLM 前先把日历冲突、与对方的历史沟通语气、联系人重要性、以及可执行工具（发邀请/发邮件）补齐，于是能直接给出可执行建议并采取动作。
+        - 给出面向工程的定义：context engineering 是“在 LLM 调用前运行的系统”，在合适时间提供合适信息与工具，并用合适格式呈现（摘要优于原始 dump、清晰 schema 优于模糊指令）。
+        - 强调它的性质：
+          - 是 system，不是 string；是 on-the-fly 动态构建；
+          - 同时提供 knowledge（信息）与 capability（工具）；
+          - 表达方式/格式影响可用性。
+        - 结论：可靠 agent 的差异更多来自“上下文与工具编排”，而不是“某个神奇 prompt”。

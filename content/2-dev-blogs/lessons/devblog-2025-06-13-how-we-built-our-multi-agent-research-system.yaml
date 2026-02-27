@@ -1,0 +1,35 @@
+id: devblog-2025-06-13-how-we-built-our-multi-agent-research-system
+title: "How we built our multi-agent research system"
+summary: |
+  适用性前提：研究类任务路径依赖强、不可预先硬编码；关键在“不断根据发现调整搜索方向”。因此 agent 需要多轮自治，并能在中间结果基础上 pivot。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2025-06-13
+      - 来源：Anthropic
+      - URL：https://www.anthropic.com/engineering/multi-agent-research-system
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/Anthropic/Agents_and_Tooling/2025-06-13__how-we-built-our-multi-agent-research-system__a3afc1e8c7.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：orchestrator-worker、parallel subagents、compression as search、token budget scaling、cost tradeoffs、end-state eval、filesystem artifacts
+      - 要点：
+        - 适用性前提：研究类任务路径依赖强、不可预先硬编码；关键在“不断根据发现调整搜索方向”。因此 agent 需要多轮自治，并能在中间结果基础上 pivot。
+        - multi-agent 的收益被作者概括为“搜索=压缩”：子 agent 在各自 context window 内并行探索不同方向，最后把最重要 token 压缩回主 agent；这既提供并行 capacity，也提供 separation of concerns（不同工具/提示/轨迹），减少单一路径依赖。
+        - 内部评估结果：以 Claude Opus 4 为 lead + Claude Sonnet 4 为 subagents 的 multi-agent 系统，在内部 research eval 上比单 agent Opus 4 **高 90.2%**；对 breadth-first、可并行探索的查询尤其有效。
+        - 对 BrowseComp（浏览找信息）的分析：性能方差的 95% 可由 3 个因素解释，其中 token 使用量单独解释 **80%**，其余是 tool calls 数与 model choice。这个发现反过来支撑了 multi-agent 的“扩 token 容量”思路：让多个 agent 各自用 token 并行探索。
+        - 代价非常明确：agent（单 agent）比 chat 约 **4× tokens**，multi-agent 比 chat 约 **15× tokens**。因此它只在“任务价值足够高且并行化收益大”的场景经济可行；需要共享同一上下文、强依赖协同的任务（如多数 coding）并不理想。
+        - 架构概览：典型 orchestrator-worker（lead 负责计划与协调，subagents 并行检索与总结）。文中还提到同步执行子 agent 会形成瓶颈（lead 等最慢的 subagent）；异步会带来更强并行但也引入一致性与错误传播复杂度。
+        - 生产化经验（可迁移）：
+          - 评估上更强调 end-state：对会改变状态/多轮执行的 agent，比起逐步检查过程，更可靠的是看最终状态是否正确；必要时设置检查点；
+          - 长对话要做上下文管理：阶段性总结+外部 memory，必要时启用新子 agent 做干净上下文的探索，并通过 handoff 保连续性；
+          - 避免“电话游戏”：让子 agent 直接把产物写到文件系统/外部 artifact（报告、代码、可视化等），主 agent 只拿引用/摘要，降低信息损失与 token 复制成本。
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      文中量化结果（如提升幅度、4×/15× tokens）与所用模型版本是当时系统的观测，未来可能变化。
+      本课关注可迁移的权衡：并行探索+压缩回传、artifact 避免传话游戏、end-state evaluation、以及 multi-agent 的成本边界。

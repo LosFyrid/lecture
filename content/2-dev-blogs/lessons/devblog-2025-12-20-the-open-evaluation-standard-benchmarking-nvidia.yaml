@@ -1,0 +1,34 @@
+id: devblog-2025-12-20-the-open-evaluation-standard-benchmarking-nvidia
+title: "The Open Evaluation Standard: Benchmarking NVIDIA Nemotron 3 Nano with NeMo Evaluator"
+summary: |
+  文章讨论的不是“某个模型分数有多高”，而是**为什么需要开放、可复现的评估配方（evaluation recipe）**：很多评估只给最终分数，不给 configs/prompts/harness 版本/运行设置/logs；而这些细小差异足以导致结果不可比，甚至误把“评测条件变化/数据泄漏”当成“模型进步”。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2025-12-20
+      - 来源：HuggingFace
+      - URL：https://huggingface.co/blog/nvidia/nemotron-3-nano-evaluation-recipe
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/HuggingFace/Evaluation_and_Observability/2025-12-20__the-open-evaluation-standard-benchmarking-nvidia-nemotron-3-nano-with-nemo-evalu__047189296b.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：open & reproducible eval recipes、evaluation config/versioning、backend decoupling、audit artifacts/logs、CLI workflow
+      - 要点：
+        - 文章讨论的不是“某个模型分数有多高”，而是**为什么需要开放、可复现的评估配方（evaluation recipe）**：很多评估只给最终分数，不给 configs/prompts/harness 版本/运行设置/logs；而这些细小差异足以导致结果不可比，甚至误把“评测条件变化/数据泄漏”当成“模型进步”。
+        - “开放评估”的定义：公开的不只是分数，还包括端到端方法论与产物——工具链、配置、prompts、运行参数、日志与结构化结果，让任何人可以复跑并审计。
+        - NeMo Evaluator 的设计理念（可迁移）：
+          - 用单一一致的评估系统定义 benchmark/prompt/config/runtime，一次写好，多模型复用，避免“每次换模型评测脚本就变”；
+          - 方法论与推理后端解耦：同一评估配置可以对接不同 inference backend（本地/托管/第三方），使“换基础设施”不影响指标口径；
+          - 面向规模化：从单 benchmark 到完整 model card 套件与周期性复测；
+          - 审计性：每次 run 产出结构化 artifacts + logs，便于定位异常与复现实验。
+        - 文中以 Nemotron 3 Nano 的公开 recipe 为例，展示了一套可复跑的 CLI 工作流（安装 launcher、设置访问 token、配置 endpoint、dry-run、全量跑、`limit_samples` 快速抽样、按 benchmark 子集运行、查看 status/logs），并定义输出目录的标准布局（artifacts/results.json + logs/stdout.log）。
+        - 对 agent/模型工程的可迁移点：把 eval 当作“基础设施”来做——配置化、版本化、可审计、与推理后端解耦；并公开 recipe 来降低社区比较与复现成本。
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      文中 NeMo Evaluator 的 CLI/配置字段/输出目录结构可能随版本演进。
+      本课关注“开放可复现评估配方”的工程原则：配置/提示/版本化、与推理后端解耦、产出可审计 artifacts+logs。

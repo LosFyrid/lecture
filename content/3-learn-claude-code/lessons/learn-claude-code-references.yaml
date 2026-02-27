@@ -1,0 +1,65 @@
+id: learn-claude-code-references
+title: "参考资料与下一步：上游仓库、目录导览、扩展路线"
+summary: |
+  给出上游仓库链接、目录结构索引、以及把本 Track 的“教学实现”迁移到你自己项目时的建议路线。
+items:
+  - type: md
+    title: 上游仓库与版本
+    body: |
+      - GitHub：`https://github.com/shareAI-lab/learn-claude-code`
+      - 本次课程整理基于仓库一次性快照（建议你在课程发布时锁定一个 commit，以避免内容漂移）。
+
+      备注：上游仓库提供了多语言 README（`README.md` / `README-zh.md` / `README-ja.md`）。
+
+  - type: md
+    title: 目录导览（你应该先看哪里）
+    body: |
+      仓库主要目录：
+
+      - `docs/{zh,en,ja}/`：讲义（心智模型优先，问题→方案→原理→代码）
+      - `agents/`：Python 参考实现（s01~s12 + `s_full.py` 完整版）
+      - `skills/`：用于 s05 的 Skill 文件（通过 tool_result 注入）
+      - `web/`：Next.js 交互式学习平台（可选）
+      - `screenshots/`：web 平台截图（可用于课程展示）
+
+      建议阅读/实践顺序（强烈建议按机制递进）：
+
+      1) `docs/zh/s01-...` + `agents/s01_...`
+      2) 依次到 s06（掌握规划/隔离/按需加载/压缩）
+      3) s07~s08（把“状态”和“执行”做成可持续系统）
+      4) s09~s12（团队协作 + 协议 + 自治 + worktree 隔离）
+
+  - type: md
+    title: 从“教学实现”迁移到你自己的项目：建议路线
+    body: |
+      如果你想把这里的思路用到自己的真实项目里，建议按下面顺序迁移（每次只引入一个机制）：
+
+      1) **s01+s02：先把 loop 与 tools 结构固定下来**  
+         - 先不追求复杂规划，先保证：工具调用可执行、结果能回流、错误能暴露。
+      2) **s03：让计划变成结构化状态**  
+         - 不要只靠自然语言计划；先把“进度/待办”做成可更新的对象。
+      3) **s06：引入 compact（否则长任务很快失控）**
+      4) **s07：把关键状态落盘（任务/工件/引用）**
+      5) **s12：并行改动一定要隔离（worktree 或等价机制）**
+
+      你可以把 s09~s11 视为“需要时再上”的团队化扩展：当单体已稳定，但吞吐/并发需求上来时再引入。
+
+  - type: md
+    title: 可选：启用上游的 Web 学习平台
+    body: |
+      上游仓库提供了 Next.js 的交互式平台（动画 + 源码查看器等）。如果你想本地体验：
+
+      ```sh
+      cd web
+      npm install
+      npm run dev
+      # open http://localhost:3000
+      ```
+
+      备注：本 Track 的站内版本不依赖 web 平台；它是可选体验。
+
+  - type: md
+    layout: inline
+    body: |
+      许可证：MIT
+

@@ -1,0 +1,33 @@
+id: devblog-2026-02-23-why-we-no-longer-evaluate-swe-bench-verified
+title: "Why we no longer evaluate SWE-bench Verified"
+summary: |
+  文章的结论很明确：SWE-bench Verified 在当前 frontier 水平下已经越来越不适合作为“真实 coding 能力进步”的指标；OpenAI 建议用 SWE-bench Pro，并宣布停止报告 Verified 分数。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-02-23
+      - 来源：OpenAI
+      - URL：https://openai.com/index/why-we-no-longer-evaluate-swe-bench-verified
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/OpenAI/Evaluation_and_Observability/2026-02-23__why-we-no-longer-evaluate-swe-bench-verified__33e5e5bcd6.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：benchmark validity、test design flaws（narrow/wide）、training contamination、audit methodology、evaluation governance
+      - 要点：
+        - 文章的结论很明确：SWE-bench Verified 在当前 frontier 水平下已经越来越不适合作为“真实 coding 能力进步”的指标；OpenAI 建议用 SWE-bench Pro，并宣布停止报告 Verified 分数。
+        - 现象背景：SWE-bench Verified 在 6 个月里从 **74.9% → 80.9%**，进步变慢，剩余失败到底是模型瓶颈还是数据集属性问题？作者做了审计后认为主要是 benchmark 本身的问题。
+        - 主要问题 1：**测试拒绝正确解**。他们审计了“模型经常失败”的数据子集：
+          - 对 o3 在 64 次独立 runs 中不稳定解决的 **138** 个问题做审计（每例至少 6 位资深工程师复核）；
+          - 发现其中 **59.4%** 存在“测试设计/题面描述的实质性缺陷”，导致即使对人类/最强模型也极难或不可能稳定通过。
+          - 在缺陷细分上：
+            - **35.5%** 属于 narrow tests：测试强制某些实现细节，很多“功能正确”的实现会被判错；
+            - **18.8%** 属于 wide tests：测试要求的额外功能在题面里未被明确规定。
+        - 主要问题 2：**训练污染（contamination）**。SWE-bench 来源于开源仓库，而这些仓库常被用于训练；他们观察到所有测试的 frontier 模型都能在某些任务上复现“gold patch”（人类修复 PR）或题面细节，说明至少部分题目/答案进入了训练数据。
+        - 更糟的是：在“测试/题面本来就欠规范”的任务里，见过答案的模型更容易成功，因为它额外拥有通过 underspecified tests 所需的信息——分数开始更像“暴露程度”而不是“能力提升”。
+        - 他们用一个自动化 red-teaming 设置探测污染：让 GPT-5 在多轮对话中尝试诱导目标模型泄露任务特定信息，并由 judge 评估污染强度（none→strong），再人工复核强污染样本；给出“能复现 gold patch/细节”的例子来说明风险。
+        - 总结出的两条评测设计教训（可迁移）：
+          - 用公开爬取数据构造 benchmark 会天然带来污染风险，需要额外的污染检测、训练数据过滤与 canary strings 等措施；
+          - 自动化 scoring（单靠 tests）很难做到既不苛刻（narrow）又不漏检（wide），需要大量人类标注与审计；并且越来越需要“私有出题/私有评测”来维持有效性（作者提到私有作者题库+人工整体评分的方向）。

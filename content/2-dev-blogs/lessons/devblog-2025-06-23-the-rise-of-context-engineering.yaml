@@ -1,0 +1,30 @@
+id: devblog-2025-06-23-the-rise-of-context-engineering
+title: "The rise of \"context engineering\""
+summary: |
+  给出一个面向工程的定义：**context engineering = 构建“动态系统”**，在正确的时间以正确的格式把正确的信息与工具交给 LLM，使任务“在信息论意义上”对模型来说是可解的（plausibly solvable）。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2025-06-23
+      - 来源：LangChain
+      - URL：https://blog.langchain.com/the-rise-of-context-engineering
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LangChain/Agents_and_Tooling/2025-06-23__the-rise-of-context-engineering__07ea867547.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：context engineering 定义、动态 prompt 组装、信息/工具/格式、context failure vs model failure
+      - 要点：
+        - 给出一个面向工程的定义：**context engineering = 构建“动态系统”**，在正确的时间以正确的格式把正确的信息与工具交给 LLM，使任务“在信息论意义上”对模型来说是可解的（plausibly solvable）。
+        - 逐句拆解这个定义：
+          - 它是“系统”而不是一个字符串：上下文可能来自开发者配置、用户输入、历史对话、工具调用结果、外部数据等，最终 prompt 是这些来源的聚合产物。
+          - 它必须是“动态的”：上下文会在运行时产生与变化，因此 prompt 构造逻辑也必须随请求/状态变化。
+          - 需要“正确信息”：LLM 不是读心术；缺什么就会胡猜或走错路径（garbage in, garbage out）。
+          - 需要“正确工具”：仅靠文本推理不够时，必须提供检索/执行/写入等工具能力；工具的重要性不低于信息本身。
+          - “格式很重要”：对模型而言，短而清晰的错误信息往往比一大坨 JSON 更可用；工具 schema/参数命名也会影响可用性。
+          - “它是否 plausibly accomplish？”是一个诊断问题：失败到底是“模型能力不够”，还是“上下文/工具没给对或给得不好”，两者对应完全不同的修复路径。
+        - 为什么它变得重要：随着应用从单次 prompt 走向多步 agent 系统，可靠性问题更常来自“上下文缺失/格式差”，而不是模型本身；因此 prompt engineering 更像 context engineering 的一个子集。
+        - 文中列举的 context engineering 例子包括：工具输出的可读性设计、短期记忆（对话总结）、长期记忆（跨会话偏好/事实）、检索/RAG、以及清晰可执行的行为指令。
+        - 对工具/框架的态度（可迁移）：更“可控”的 agent 编排方式能让你决定每一步做什么、LLM 看到什么、输出存到哪里；同时 tracing/可观测性可以把“到底给了模型什么上下文、怎么格式化的”暴露出来，便于 debug。

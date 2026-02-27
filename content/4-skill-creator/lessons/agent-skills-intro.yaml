@@ -1,0 +1,65 @@
+id: agent-skills-intro
+title: "导论：为什么要用 Skill（把重复工作写进 SKILL.md）"
+summary: |
+  Skill 是把“你反复教 Claude 的工作方式”打包成可复用能力：一次写好、处处生效。它特别适合可重复、多步骤、有规范/风格要求的工作流。
+items:
+  - type: md
+    title: 学习目标
+    body: |
+      学完本课，你应该能够：
+
+      - 用一句话解释 Skill 的价值：**teach once, benefit every time**。
+      - 区分 Skill 与 prompt / tool / MCP connector 的边界与关系。
+      - 为你自己的一个工作流写出 2-3 个“可落地”的 use case（为后续课程做准备）。
+
+  - type: md
+    title: Skill 是什么（以及它解决什么问题）
+    body: |
+      你可以把 Skill 理解为：
+
+      - 一套“可携带的指令集”（instructions），封装在一个文件夹里；
+      - 让 Claude 在合适的时候自动加载这些指令，并按你期望的方法做事；
+      - 让结果更稳定、更一致，并减少你每次都要重复解释的成本。
+
+      Skill 适合的场景通常满足下面特征：
+
+      - **重复出现**：你每周/每天都在做类似事情（例如：写周报、整理会议纪要、做文献调研、生成代码评审意见）。
+      - **有明确方法论**：不是“随便聊聊”，而是“按步骤做事”（例如：先收集信息 → 再归纳 → 再产出 → 再自检）。
+      - **对一致性敏感**：需要固定格式/风格/规范（例如：品牌色、文档模板、团队写作风格、合规检查清单）。
+
+  - type: md
+    title: Skill vs Prompt vs Tool vs MCP（把关系讲清楚）
+    body: |
+      - **Prompt**：一次性的“临时指令”。有效，但容易漂移、容易被你忘记重复强调。
+      - **Tool**：Claude 可调用的外部能力（脚本/API/检索/执行器）。它决定“能不能做”。
+      - **MCP Connector/Server**：把 Claude 连接到某个服务/系统（例如 Notion/Linear/Sentry）。它解决“连得上、拿得到数据、调得了接口”。
+      - **Skill**：把“怎么用这些工具/连接器做成一个结果”写成流程与最佳实践。它解决“做得对、做得稳、做得一致”。
+
+      一个好用的心智模型：
+
+      - MCP 提供厨房（工具、食材、设备）
+      - Skills 提供菜谱（步骤、火候、检查点、常见错误与补救）
+
+  - type: md
+    title: 两条学习路径（先选你的主线）
+    body: |
+      这份材料提供两条主线，你可以按你的目标选择重点：
+
+      1) **Standalone Skills（无 MCP）**  
+         重点放在：Skill 基础、规划与设计、frontmatter 触发条件、写作模板、测试与迭代。  
+         典型输出：文档/资产生成、风格指南、固定的写作与评审流程。
+
+      2) **Skills + MCP（增强连接器的“知识层”）**  
+         重点放在：把 domain workflow 写进 Skill，让 Claude 稳定地调用 MCP tools（顺序、参数、错误处理、数据传递）。  
+         典型输出：一键完成“跨系统工作流”（例如：Figma → Drive → Linear → Slack）。
+
+      两条路径共享同一套技术要求：文件结构、frontmatter、安全限制与测试方法。
+
+  - type: md
+    layout: inline
+    body: |
+      来源材料：
+
+      - `original/4-26-02-27/The-Complete-Guide-to-Building-Skill-for-Claude.pdf`
+      - 重点页：Contents（第 2 页）、Introduction（第 3 页）
+

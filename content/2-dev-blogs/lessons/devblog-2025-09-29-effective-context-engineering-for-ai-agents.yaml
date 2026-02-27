@@ -1,0 +1,37 @@
+id: devblog-2025-09-29-effective-context-engineering-for-ai-agents
+title: "Effective context engineering for AI agents"
+summary: |
+  文章把“prompt engineering”扩展为更适合 agent 的概念：**context engineering**。核心问题从“怎么写一句好 prompt”变成“在每一步推理时，给模型什么样的 context 配置最可能产生期望行为”。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2025-09-29
+      - 来源：Anthropic
+      - URL：https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/Anthropic/Agents_and_Tooling/2025-09-29__effective-context-engineering-for-ai-agents__126e07cf0d.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：context engineering、attention budget、tool design、just-in-time context、hybrid retrieval、compaction、note-taking memory、sub-agents
+      - 要点：
+        - 文章把“prompt engineering”扩展为更适合 agent 的概念：**context engineering**。核心问题从“怎么写一句好 prompt”变成“在每一步推理时，给模型什么样的 context 配置最可能产生期望行为”。
+        - 定义：context 是采样（inference）时进入模型的 token 集合；context engineering 是在 LLM 的约束下（上下文上限、注意力预算、长上下文退化）优化这些 token 的“效用”，并在多轮/长时任务里持续维护。
+        - 为什么长上下文不等于更好：研究与实务都表明存在 **context rot**（context 越长，模型对其中信息的可靠召回越差）。从架构上，Transformer 的注意力机制需要处理 n 个 token 的 n^2 关系，注意力预算会被稀释；同时训练分布里短序列更常见，导致模型对超长依赖更“没练过”。因此 context 是有限资源且边际收益递减。
+        - 有效 context 的总原则：在注意力预算有限前提下，追求**最小的高信号 token 集**，最大化目标结果概率（“最小不等于最短”，而是“去掉低信号噪音”）。
+        - System prompt 的“高度（altitude）”校准：
+          - 一端是把复杂逻辑硬编码成脆弱的 if-else，维护成本高且容易碎；
+          - 另一端是泛泛而谈的高层指导，缺乏可执行信号或错误假设“共享背景”；
+          - 最佳点是：足够具体以引导行为，但仍提供可泛化的启发式。
+        - 建议把 system prompt 拆成清晰分区（如 `<background_information>`、`<instructions>`、`## Tool guidance`、`## Output description`），用 XML tag 或 Markdown header 强化边界；从“最小可用提示”开始测，再按失败模式逐步加指令/示例。
+        - Tools 设计：工具是 agent 与环境的契约，应当 token-efficient、职责单一、错误鲁棒、描述清晰且输入参数无歧义。一个常见失败模式是“工具集膨胀+功能重叠”导致模型在选择工具时陷入模糊决策点；如果人都说不清该用哪个，模型更不可能做对。
+        - Few-shot：建议使用“多样但典型”的 canonical examples，而不是把大量 edge case 一股脑塞进 prompt；示例对模型来说更像“图像”而不是“文字解释”。
+        - Context retrieval 的范式在变化：从“预先做 embedding 检索把所有相关内容塞进去”，转向“**Just-in-Time**”：只保留轻量引用（文件路径/查询/链接），在运行时用工具按需加载；这更像人类用文件系统/书签/索引按需取用，而不是死记全量语料。
+        - JIT 的额外收益是“元数据即信号”：文件名、目录层级、时间戳等会自然地给 agent 提示用途与相关性；并且支持 progressive disclosure（先概览、再缩小范围、再加载细节），让 agent 逐层构建理解而不被无关内容淹没。
+        - 代价与折中：运行时探索更慢，且需要给 LLM 足够好的工具与导航启发式，否则会误用工具、走死胡同、浪费上下文；很多场景最终会采用 hybrid：一部分关键上下文预加载 + 其余按需探索（文中以“说明文件预加载 + glob/grep 运行时检索”为例）。
+        - 长时任务（long-horizon）三种常见工程手段：
+          - Compaction：接近上限时高保真总结并开启新窗口；在 Claude Code 的例子里会保留架构决策/未解决问题/实现细节，丢弃冗余 tool 输出，并搭配“最近访问的文件”保持连续性；建议调 compaction prompt 时先追求高 recall，再提高 precision。
+          - Structured note-taking：把关键进度/依赖写到 context window 外（例如 TODO/NOTES.md），之后再读回，维持跨多轮一致性。
+          - Sub-agent architectures：让子 agent 用干净上下文深入探索（可用掉 10k+ tokens），最后只回传 1k–2k tokens 的蒸馏结果，主 agent 负责合成；适用于并行探索收益大的研究类任务。

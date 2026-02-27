@@ -1,0 +1,36 @@
+id: devblog-2026-02-19-the-cost-of-overthinking-why-reasoning-models-fa
+title: "The Cost of Overthinking: Why Reasoning Models Fail at Document Parsing"
+summary: |
+  研究问题：推理模型在数学/代码任务上常因“多想”更强，但对文档 OCR/解析（表格、公式、阅读顺序）是否同样成立？作者用 OmniDocBench 子集做实验，结论是：**更多 thinking 并没有带来更高解析质量，却显著增加成本与延迟**。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-02-19
+      - 来源：LlamaIndex
+      - URL：https://www.llamaindex.ai/blog/the-cost-of-overthinking-why-reasoning-models-fail-at-document-parsing
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LlamaIndex/Models_and_Techniques/2026-02-19__the-cost-of-overthinking-why-reasoning-models-fail-at-document-parsing__faf0b79394.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：reasoning tokens、OCR/document parsing、layout fidelity、cost/latency tradeoff、pipeline-based parsing
+      - 要点：
+        - 研究问题：推理模型在数学/代码任务上常因“多想”更强，但对文档 OCR/解析（表格、公式、阅读顺序）是否同样成立？作者用 OmniDocBench 子集做实验，结论是：**更多 thinking 并没有带来更高解析质量，却显著增加成本与延迟**。
+        - 实验设置：随机选 10 个中等难度 + 30 个高难度文档（复杂表格、多栏布局、混合方向文字、公式、低扫描质量等），用 GPT-5.2 的 4 个推理档位（Zero/Low/High/xHigh）跑解析，并用 LlamaParse Agentic 作为 baseline。
+        - 核心结果（Quality/Time/Cost）：
+          - Zero：质量 **0.795**，**47.89s**，**$0.029**
+          - Low：**0.784**，**45.11s**，**$0.031**
+          - High：**0.792**，**96.23s**，**$0.078**
+          - xHigh：**0.790**，**241.70s**，**$0.246**
+          - LlamaParse Agentic：质量 **0.821**，**18.71s**，**$0.013**
+        - 现象 1：高推理会“结构性偏离原文”。示例中 xHigh 用了约 **13,700** reasoning tokens 处理一页表格，却把字符 “4-CNY” 幻觉成 “4-CYN”，并且会把原文留白的表格单元“补齐”（语义上可能说得通，但对 benchmark 的结构忠实度/精确匹配是负分）。
+        - 现象 2：高推理更倾向“过度解释布局”，把一个连续表格拆成多个表（看到分区标题就推断“这里应该是边界”），从“所见即所得的转写”变成“按它认为应该怎样的结构重构”。
+        - 现象 3：你无法用 reasoning tokens 弥补 vision encoder 看不清的问题。示例显示遇到竖排小字/模糊区域时，模型直接跳过；即使 `detail=auto` 会触发更高分辨率 tile crops，仍可能失败，说明瓶颈发生在推理前的图像编码阶段。
+        - reasoning 仍有用，但更适合“理解”而不是“解析”：例如 xHigh 能把 logo/icon 描述出来（解释“这是什么”），而 base 模式只会把它当空白；对 OCR 任务，过度理解反而会引入填空/幻觉。
+        - 作者给出的工程路径：用 pipeline 分解问题，而不是堆 thinking：
+          - 先做确定性的 OCR/像素级读取；
+          - 再做布局/结构分析确定表格边界；
+          - 最后让 LLM 在“已被读出来的文本”上做结构化与校验；
+          - 在局部环节用 agentic loop 做对齐与验证，把推理用在“需要推理的地方”，而不是用推理去猜像素。

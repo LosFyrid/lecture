@@ -1,0 +1,32 @@
+id: devblog-2026-01-13-vector-search-vs-filesystem-tools-2026-benchmark
+title: "Vector Search Vs. Filesystem Tools: 2026 Benchmarks | LlamaIndex"
+summary: |
+  文章回应一个热门观点：给 agent `cat/ls/grep` 这类 filesystem 工具后，是否会“杀死向量检索/RAG”？作者用实验把问题拆成：在不同数据规模与约束下，filesystem 探索与传统 RAG 的速度/质量分别如何。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-01-13
+      - 来源：LlamaIndex
+      - URL：https://www.llamaindex.ai/blog/did-filesystem-tools-kill-vector-search
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LlamaIndex/Agents_and_Tooling/2026-01-13__vector-search-vs-filesystem-tools-2026-benchmarks-llamaindex__b40b151f2d.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：RAG vs filesystem exploration、hybrid retrieval、benchmark design、latency/quality tradeoff、scaling behavior
+      - 要点：
+        - 文章回应一个热门观点：给 agent `cat/ls/grep` 这类 filesystem 工具后，是否会“杀死向量检索/RAG”？作者用实验把问题拆成：在不同数据规模与约束下，filesystem 探索与传统 RAG 的速度/质量分别如何。
+        - 实验 1（小规模、长文档）：用 5 篇 arXiv PDF（约 22–52 页）构造 5 个 QA 任务，问题要求对论文具体段落做精确回答。
+          - RAG 系统：混合检索（dense+sparse）+ RRF；PDF→文本→句子 chunk→embedding→向量库；并做“先判定最可能的文件”作为 metadata filter；最后取 top-1 chunk 做回答。
+          - fs-explorer agent：循环调用 filesystem 工具（读文件、grep、列目录、glob），并带一个 `parse_file` 工具把 PDF 解析成文本（有缓存）。
+        - 小规模结果：
+          - 速度：RAG 更快，平均 **7.36s**，fs-explorer 平均 **11.17s**（差 **3.81s**）。解释：filesystem 探索需要多次 LLM 回合与工具交互；RAG 路径固定且网络调用数量更稳定。
+          - 质量：fs-explorer 更好，平均 correctness **8.4 vs 6.4**，relevance **9.6 vs 8.0**。解释：RAG 受 chunking 与检索误差影响，给最终生成的上下文可能不完整/不准；而小规模 PDF 能直接装进 1M 上下文（Gemini 3 Flash），agent 看到更完整语境，幻觉更少。
+          - 但作者强调：这种优势在文档更大、会溢出 context window 时可能消失。
+        - 实验 2（规模扩展到 100/1000 篇）：改用摘要文本以省掉解析；RAG 改为 BM25；fs-explorer 先读 `metadata.jsonl` 用标题筛选候选文件以减少遍历。
+        - 扩展结果：规模越大，RAG 越容易扩展，速度优势更明显；正确率也略优或接近；两者 relevance 都很好。作者给出的工程结论是：
+          - filesystem 探索更适合异步/后台任务或小规模高保真阅读；
+          - RAG 更适合实时、低延迟与大规模（百万文档、十亿 embedding）检索；
+          - 选择取决于功能与非功能需求（延迟、成本、数据规模、可维护性），并且 filesystem 路线在规模变大时也需要 compaction 等 context 工程来防止“上下文被文件内容填爆”。

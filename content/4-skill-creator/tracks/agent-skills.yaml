@@ -1,0 +1,58 @@
+id: agent-skills
+title: "Agent Skills：为 Claude 构建可复用技能（SKILL.md）"
+description: |
+  这是一门“把经验写成可复用能力”的课程：把你反复对 Claude 解释的流程、规范、最佳实践，封装成一个 Skill（一个文件夹 + SKILL.md + 可选脚本/参考资料），让 Claude 在合适的时候自动加载，并稳定执行。
+
+  你将学到：
+  - Skill 的基本结构与三层“渐进式加载”（frontmatter / SKILL.md / linked files）
+  - 如何从 use case 出发做规划：触发条件、步骤编排、成功标准
+  - 如何写好 YAML frontmatter（尤其是 description 的触发条件）
+  - 如何测试、迭代、分发（个人/组织/API），并掌握常见模式与排障方法
+
+  本轮材料（2026-02-27）：`The-Complete-Guide-to-Building-Skill-for-Claude.pdf`（原文在 `original/4-26-02-27/`）。
+modules:
+  - id: intro
+    title: 导论
+    lessons:
+      - agent-skills-intro
+
+  - id: fundamentals
+    title: 基础概念与设计原则
+    lessons:
+      - agent-skills-101-fundamentals
+
+  - id: planning
+    title: 规划与设计
+    lessons:
+      - agent-skills-201-planning-and-design
+
+  - id: authoring
+    title: 写作与结构（frontmatter + SKILL.md）
+    lessons:
+      - agent-skills-301-frontmatter-and-instructions
+
+  - id: testing
+    title: 测试与迭代
+    lessons:
+      - agent-skills-401-testing-and-iteration
+
+  - id: distribution
+    title: 分发与协作
+    lessons:
+      - agent-skills-501-distribution-and-api
+
+  - id: patterns
+    title: 常见模式
+    lessons:
+      - agent-skills-601-patterns
+
+  - id: troubleshooting
+    title: 排障与检查清单
+    lessons:
+      - agent-skills-602-troubleshooting-and-checklist
+
+  - id: references
+    title: 资源与参考
+    lessons:
+      - agent-skills-references
+

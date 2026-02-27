@@ -1,0 +1,18 @@
+id: agent-dev-201-t03-memory-retrieval
+title: "Track 3 - Memory & Retrieval：长期记忆、检索策略、RAG vs Grep/Filesystem"
+description: |
+  学习长期记忆与检索策略的设计权衡：如何写入/召回/更新 memory，
+  以及在向量检索与 filesystem/grep 工具之间做可解释的选型。
+modules:
+  - id: m01-untitled
+    title: "记忆系统设计（写入/召回/更新）"
+    lessons:
+      - devblog-2026-02-22-how-we-built-agent-builders-memory-system
+  - id: m02-vs-grep-filesystem-tools
+    title: "检索策略取舍：向量检索 vs grep/filesystem tools"
+    lessons:
+      - devblog-2026-01-13-vector-search-vs-filesystem-tools-2026-benchmark
+  - id: m03-untitled
+    title: "推理模型在长文档任务上的失败模式（可作为评估/调参案例）"
+    lessons:
+      - devblog-2026-02-19-the-cost-of-overthinking-why-reasoning-models-fa

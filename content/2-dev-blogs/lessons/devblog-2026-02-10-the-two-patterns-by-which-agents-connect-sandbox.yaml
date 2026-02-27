@@ -1,0 +1,39 @@
+id: devblog-2026-02-10-the-two-patterns-by-which-agents-connect-sandbox
+title: "The two patterns by which agents connect sandboxes"
+summary: |
+  TL;DR：越来越多 agent 需要一个“工作电脑”（装包、跑代码、访问文件），但必须隔离以避免触碰宿主机凭据/文件/网络；文章总结了两种主流架构，把“agent 跑在哪里”作为分界。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-02-10
+      - 来源：LangChain
+      - URL：https://blog.langchain.com/the-two-patterns-by-which-agents-connect-sandboxes
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LangChain/Agents_and_Tooling/2026-02-10__the-two-patterns-by-which-agents-connect-sandboxes__3a452db649.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：sandbox integration patterns、agent runtime placement、security boundary、secrets handling、iteration speed、parallel sandboxes
+      - 要点：
+        - TL;DR：越来越多 agent 需要一个“工作电脑”（装包、跑代码、访问文件），但必须隔离以避免触碰宿主机凭据/文件/网络；文章总结了两种主流架构，把“agent 跑在哪里”作为分界。
+        - Pattern 1：**Agent in Sandbox**（agent 本体运行在沙箱里，通过网络与外部系统通信）。
+          - 形态：把 agent framework 打进 Docker/VM 镜像，在沙箱内部跑一个 HTTP/WebSocket server，对外提供交互接口。
+          - 优点：与本地开发形态一致；agent 与执行环境耦合紧密；直接文件系统访问/环境状态维护更自然。
+          - 代价与风险：
+            - 需要额外通信基础设施（会话管理、错误处理等）；
+            - API keys 必须在沙箱内，若沙箱被攻破或发生 prompt injection 外泄，风险更大；
+            - 更新需要重建镜像/部署，迭代慢；
+            - “权限同一化”：如果 agent 整体都在沙箱里，agent 代码与 LLM 生成代码往往共享同一权限边界，难以做到“某些 tool 权限高于 LLM 生成代码”。
+        - Pattern 2：**Sandbox as Tool**（agent 本体在本地/自家服务器，只把执行当作远程 tool 调用）。
+          - 形态：agent 生成要运行的代码/命令后，通过 API 调用远程沙箱执行（E2B/Modal/Daytona/Runloop 等）；从 agent 视角，沙箱就是一个 tool。
+          - 优点：
+            - agent 逻辑更新快（无需重建镜像）；
+            - API keys 留在沙箱外，分离更清晰；
+            - agent 状态（历史/记忆/推理链）与执行环境解耦，沙箱崩了不丢状态；可更换沙箱后端；
+            - 可并行起多个沙箱；只在需要执行时付费。
+          - 代价：网络延迟；需要 stateful session 才能减少反复安装/文件传输的开销。
+        - 选型建议（可迁移）：
+          - 环境强耦合、追求“本地=生产”、或 SDK 已替你搞定通信 → 倾向 Pattern 1；
+          - 需要快速迭代、重视 secrets 外置、重视状态/执行分离 → 倾向 Pattern 2。

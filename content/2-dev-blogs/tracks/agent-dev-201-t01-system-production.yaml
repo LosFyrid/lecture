@@ -1,0 +1,15 @@
+id: agent-dev-201-t01-system-production
+title: "Track 1 - Agent 系统心智模型 & 从 Prototype 到 Production"
+description: |
+  建立 agent 系统的工程心智模型（agent loop + harness），并理解从 prototype 走向 production
+  所需的可靠性、可观测性与持续迭代方法。
+modules:
+  - id: m01-agent-loop-harness
+    title: "Agent Loop / Harness / 可靠性直觉"
+    lessons:
+      - devblog-2026-01-23-unrolling-the-codex-agent-loop
+      - devblog-2026-02-17-improving-deep-agents-with-harness-engineering
+  - id: m02-agentops
+    title: "生产中的不确定性（AgentOps 思维）"
+    lessons:
+      - devblog-2026-02-26-you-dont-know-what-your-agent-will-do-until-its

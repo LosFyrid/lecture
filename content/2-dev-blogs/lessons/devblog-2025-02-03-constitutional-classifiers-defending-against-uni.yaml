@@ -1,0 +1,35 @@
+id: devblog-2025-02-03-constitutional-classifiers-defending-against-uni
+title: "Constitutional Classifiers: Defending against universal jailbreaks"
+summary: |
+  文章介绍一种“对抗通用 jailbreak（universal jailbreak）”的系统：**Constitutional Classifiers**。它的核心不是再训练一个“更听话的主模型”，而是在模型输入/输出两侧加一层分类器（classifiers）做过滤，阻断绝大多数 jailbreak，同时尽量控制误拒（overrefusal）与额外算力开销。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2025-02-03
+      - 来源：Anthropic
+      - URL：https://www.anthropic.com/research/constitutional-classifiers
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/Anthropic/Research_and_Benchmarks/2025-02-03__constitutional-classifiers-defending-against-universal-jailbreaks__bb6ac706c8.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：jailbreak defense、input/output classifiers、synthetic data、overrefusal vs robustness、bug bounty red teaming、CBRN safeguards
+      - 要点：
+        - 文章介绍一种“对抗通用 jailbreak（universal jailbreak）”的系统：**Constitutional Classifiers**。它的核心不是再训练一个“更听话的主模型”，而是在模型输入/输出两侧加一层分类器（classifiers）做过滤，阻断绝大多数 jailbreak，同时尽量控制误拒（overrefusal）与额外算力开销。
+        - 背景：LLM 虽有安全训练，但仍会被 jailbreak 绕过（超长提示、怪异风格等）。对高风险能力（如 CBRN 相关）而言，jailbreak 直接绕开 safeguard，会使 Responsible Scaling 之类的风险门槛失效。
+        - 人类红队结果（prototype 版本）：邀请独立 jailbreakers 参加 bug bounty，要求用单个 jailbreak 让 Claude 3.5 Sonnet（2024-06）回答 10 个“禁止问题”才算通用成功。
+          - **183** 名活跃参与者累计 **>3,000 小时**、两个月，最高悬赏 **$15,000**，最终无人能用单一 jailbreak 让模型回答全部 10 个问题（即未发现 universal jailbreak）。
+          - 但 prototype 的问题是误拒率高、算力成本大，部署性不足。
+        - 自动化评估结果（改进版本的核心证据）：构造 **10,000** 条合成 jailbreak prompts（包含已知有效攻击与针对分类器的绕过攻击），比较“无分类器”与“有分类器”：
+          - 无分类器时，jailbreak 成功率 **86%**（模型仅拒绝 14%）；
+          - 加入 Constitutional Classifiers 后，成功率降到 **4.4%**（>95% jailbreak 被拒绝）。
+        - 同时作者强调权衡：原型能抗“几千小时人类红队”，但 overrefusal/计算开销偏大；更新版本在合成评估上维持相近鲁棒性，并把额外拒绝率压到 **+0.38%**、算力开销降到“moderate”级别（仍非零）。
+        - 系统性视角（可迁移到 agent 安全）：把安全从“单模型行为”扩展为“系统级 guardrail”：输入/输出过滤、流量监控、快速响应修补；并承认在真实世界里攻击者的反馈回路更慢（不像 demo 里能快速试错评分），因此结合运营策略（监控反复触发分类器的用户、快速迭代规则）能进一步提高实战安全性。
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      对抗安全是动态博弈：jailbreak 手法与防御策略会持续演化，因此文中的成功率/误拒率等结果不应被视为长期保证。
+      本课关注系统思路：输入/输出分类器作为 guardrail、合成数据+红队闭环、与其它防线组合（sandbox、最小权限、监控）。

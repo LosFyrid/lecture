@@ -1,0 +1,33 @@
+id: devblog-2025-07-03-context-engineering-guide-techniques-for-ai-agen
+title: "Context Engineering Guide: Techniques for AI Agents | LlamaIndex"
+summary: |
+  文章把 context engineering 视为“有用的抽象”：它提醒我们不只要写 prompt，还要把 context window 当作要精心策划的资源（因此它“像 RAG，但不止是 RAG”）。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2025-07-03
+      - 来源：LlamaIndex
+      - URL：https://www.llamaindex.ai/blog/context-engineering-what-it-is-and-techniques-to-consider
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LlamaIndex/Agents_and_Tooling/2025-07-03__context-engineering-guide-techniques-for-ai-agents-llamaindex__4ce71bef0e.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：context 组成、resource selection、ordering & compression、long-term memory blocks、structured outputs、workflow engineering
+      - 要点：
+        - 文章把 context engineering 视为“有用的抽象”：它提醒我们不只要写 prompt，还要把 context window 当作要精心策划的资源（因此它“像 RAG，但不止是 RAG”）。
+        - 列出 agent context 的常见组成（把“工具定义/工具返回/结构化输出/全局状态”显式纳入）：
+          - system prompt/指令、用户输入、短期历史、长期记忆、从知识库或外部 API/MCP 获取的信息、工具与其定义、工具响应、结构化输出约束、全局 state/scratchpad。
+        - 将问题拆成两类工程难点：**选哪些上下文**，以及**如何让它们在上下文上限内“装得下”**。
+        - 策略 1：知识库/工具选择（resource selection）。真实 agent 往往面对多个知识源与多个工具；在“检索内容”之前，LLM 先需要“关于可用资源的上下文”，才能选对要查询的 KB/工具。
+        - 策略 2：ordering / compression。为了省 token，可以在检索后先 summarization 再入窗；并且内容顺序也会影响效果，例如“日期相关性”强的任务可在检索后做排序/过滤，把最新/最相关的内容放前面（文中给了按 date cutoff 排序的示例代码思路）。
+        - 策略 3：长期记忆设计。长期记忆不是“要不要”，而是“用哪种、返回多少”。文中给出可组合的 memory block 例子：
+          - 向量记忆（批量存取聊天片段）；
+          - 事实抽取记忆（从历史中抽 facts）；
+          - 静态记忆（固定背景信息）。
+        - 策略 4：结构化信息（Structured Outputs）。一个常见错误是把所有上下文都塞进去；结构化输出可以双向工作：
+          - 对外：要求模型按 schema 输出，便于下游自动化；
+          - 对内：把长文档先抽取成结构化结果，再把结构化结果作为“压缩后的上下文”供后续 agent 步骤使用。
+        - 策略 5：workflow engineering。与其把所有信息塞进一次 LLM 调用，不如把复杂工作拆成一系列可验证的步骤：明确何时调用 LLM、何时用确定性逻辑/工具，并在步骤间做验证、错误处理与回退；这样能从结构上避免 context overload。

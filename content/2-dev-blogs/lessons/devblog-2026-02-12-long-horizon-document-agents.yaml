@@ -1,0 +1,32 @@
+id: devblog-2026-02-12-long-horizon-document-agents
+title: "Long Horizon Document Agents"
+summary: |
+  文章把“文档知识工作”看成 long-horizon agent 的关键落点：不仅要能对一堆文档做一次性深度问答，还要能在**长时间、多轮协作、持续变化**的环境里推进工作并维护产物（living document）。
+items:
+  - type: md
+    title: 阅读材料
+    body: |
+      - 发布日期：2026-02-12
+      - 来源：LlamaIndex
+      - URL：https://www.llamaindex.ai/blog/long-horizon-document-agents
+      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LlamaIndex/Agents_and_Tooling/2026-02-12__long-horizon-document-agents__f252880766.md`
+      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+
+  - type: md
+    title: 核心内容摘要（中文压缩复述）
+    body: |
+      - 主题：long-horizon agents、event triggers、persistent backlog、human interface beyond chat、document collaboration loops、continuous updates
+      - 要点：
+        - 文章把“文档知识工作”看成 long-horizon agent 的关键落点：不仅要能对一堆文档做一次性深度问答，还要能在**长时间、多轮协作、持续变化**的环境里推进工作并维护产物（living document）。
+        - 现状拆分为两类产品形态：① 文档抽取/IDP（较确定但工作流受限）② chat-based agentic chatbot（更通用但多数是同步、需要人触发）。作者认为瓶颈在于：同步 chat 形态让人类仍是“调度器/编排者/复查者”，限制了长时间自治。
+        - 人类的文档工作本质是多步迭代协作：找资料→起草→评审评论→修改→多轮迭代→签核发布；发布后资料源继续变化（新文件、Slack 讨论、需求变更），文档需要持续更新。
+        - 为了让 agent 能做“长时文档工作”，作者提出一个 “inbox” 心智模型：long-horizon agent 需要的不只是 agent loop，还需要三块基础设施：
+          - Triggers（不止 chat）：文档被编辑/收到 redline/有人评论/模板变化/新文件出现/临近 deadline 等事件触发；
+          - Persistent task backlog：把不能立刻完成的工作放入待办队列（批处理、升级、等待批准），而不是每件事都打断人；
+          - Human interface 不只是聊天框：需要任务列表、通知、审阅与批准等交互面，让 agent 能在关键点“找人”，但日常能自己跑。
+        - 用 4 个具体用例说明差异：
+          - FAQ 持续维护：检测数据源漂移→提出带引用的改动→通知人 spot-check→发布→长期循环；
+          - PRD 从碎片输入生成并迭代：不只是写初稿，还要持续吸收工程/产品/销售等反馈并自我反思；
+          - 合同 redline 协作：收到 redline 事件→总结变更→对齐内部 playbook→起草回应→高风险升级→维护“deal state”跨版本；
+          - 尽调 memo 持续更新：新文档出现→分类抽取→更新风险清单与引用→更新 memo 并标注变化→需要时请求 signoff。
+        - 最后的工程导向结论：要做这种 agent，“无聊的基础设施”变重要——解析/抽取/索引/引用/可组合 workflow，以及把这些能力安全地拼起来，才是长时可靠协作的地基。

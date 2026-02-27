@@ -1,0 +1,101 @@
+id: agent-skills-101-fundamentals
+title: "基础：Skill 的结构与三大设计原则（渐进式加载 / 可组合 / 可移植）"
+summary: |
+  搞清楚 Skill 的最小结构（一个文件夹 + SKILL.md），以及它能“既省 token 又保专业”的关键：三层渐进式加载（frontmatter → SKILL.md → linked files）。
+items:
+  - type: md
+    title: 学习目标
+    body: |
+      学完本课，你应该能够：
+
+      - 说清楚 Skill 文件夹里**必须有什么、可选有什么**。
+      - 用自己的话解释“三层渐进式加载”为什么是 Skill 的核心（它直接影响触发准确性与上下文成本）。
+      - 理解 Skill 与 MCP 的分工：**连接能力（connectivity）** vs **知识/流程（knowledge）**。
+
+  - type: md
+    title: Skill 的最小结构（你需要记住的版本）
+    body: |
+      Skill 本质上是一个文件夹，最小结构如下：
+
+      ```text
+      your-skill-name/
+      └── SKILL.md   # 必须，且文件名必须完全一致（区分大小写）
+      ```
+
+      常见的可选目录（用于“把复杂度放到需要时再加载”）：
+
+      ```text
+      your-skill-name/
+      ├── SKILL.md
+      ├── scripts/        # 可选：可执行脚本（Python/Bash 等）
+      ├── references/     # 可选：参考资料（API 文档、最佳实践、例子）
+      └── assets/         # 可选：模板、字体、图标等
+      ```
+
+      直觉：  
+      - **SKILL.md** 是“主说明书”  
+      - **scripts/** 让关键校验/转换更确定（代码比自然语言更确定）  
+      - **references/** 把大块文档移出主上下文（按需加载）  
+      - **assets/** 提供可复用的输出材料（模板/组件/样式）
+
+  - type: md
+    title: 核心原则 1：渐进式加载（Progressive Disclosure）
+    body: |
+      Skill 使用三层信息结构（从“最常驻”到“按需加载”）：
+
+      1) **YAML frontmatter（最关键）**  
+         - 永远常驻在系统提示词的一部分  
+         - 作用：让 Claude 判断“什么时候该用这个 skill”  
+         - 结论：frontmatter 写不好，skill 就会**不触发/乱触发**
+      2) **SKILL.md 正文**  
+         - 当 Claude 认为相关时加载  
+         - 作用：给出完整工作流、步骤、示例、错误处理
+      3) **linked files（references/assets/scripts）**  
+         - Claude 只在需要时进一步打开  
+         - 作用：把细节、长文档、模板、示例代码移出去，降低主上下文噪声
+
+      你可以把它理解成：**“少即是多”不是少写，而是把信息放在正确的层级里。**
+
+  - type: md
+    title: 核心原则 2：可组合（Composability）
+    body: |
+      Claude 可以在同一任务里加载多个 skills。好的 skill 应该：
+
+      - 不假设自己是“唯一技能”（避免写成“全局接管一切”的口吻）
+      - 明确自己的边界：做什么、不做什么
+      - 与其他 skills 兼容：减少冲突指令、减少重复定义
+
+      实操建议：
+      - 在 description 里写清楚“触发条件”和“不要用在什么场景”（可作为负触发）
+      - 在正文里把关键约束放在最上面（例如：先验证、再调用工具、最后自检）
+
+  - type: md
+    title: 核心原则 3：可移植（Portability）
+    body: |
+      Skill 的目标是“一次编写，多处运行”：不同产品形态（Web、IDE、API）只要环境支持依赖，就能复用同一个 skill。
+
+      这对作者的要求是：
+      - 尽量避免把 skill 写成“只在某个界面按钮存在时才成立”的说明
+      - 把必要环境写在 compatibility/metadata（后面课程会讲）
+      - 对依赖（脚本、系统包、网络访问）要显式声明
+
+  - type: md
+    title: Skills + MCP（给 MCP Builder 的关键结论）
+    body: |
+      如果你已经有 MCP server（能让 Claude 调接口/拿数据），Skill 是在其上叠加的“知识层”：
+
+      - MCP 解决：**能连上（connectivity）**
+      - Skills 解决：**怎么用（knowledge + workflow）**
+
+      这能显著降低用户学习成本与支持成本：
+      - 没有 skill：用户连上了，但不知道下一步；每次都要从头 prompt；结果不一致
+      - 有 skill：预制工作流自动触发；工具调用更稳定；最佳实践被“写进系统”
+
+  - type: md
+    layout: inline
+    body: |
+      来源材料：
+
+      - `original/4-26-02-27/The-Complete-Guide-to-Building-Skill-for-Claude.pdf`
+      - 重点页：Fundamentals（第 5–6 页）
+
