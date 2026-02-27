@@ -12,7 +12,10 @@ const guide = `
 
 ### 1.1 Track（学习路径）
 
-目录：\`content/tracks/\`
+目录（两种组织方式都支持）：
+
+- 兼容旧结构：\`content/tracks/*.yaml\`
+- 推荐按 namespace 分组：\`content/<namespace>/tracks/**/*.yaml\`（允许继续分层）
 
 示例：\`content/tracks/agent-dev.yaml\`
 
@@ -30,13 +33,20 @@ modules:
       - intro
 \`\`\`
 
-> 注意：\`lessons\` 里写的是 lesson 的 **id**，必须在 \`content/lessons/*.yaml\` 存在，否则构建会失败（fail fast）。
+> 注意：\`lessons\` 填的是 lesson 引用，必须在任意 \`content/**/lessons/**/*.yaml\` 中存在，否则构建会失败（fail fast）。
+> - ✅ 推荐：写短 \`id\`（例如 \`intro\`），要求 **全局唯一**
+> - ✅ 若出现重名：写 namespaced 引用（例如 \`ai/v2/intro\`，或根目录的 \`__root__/intro\`）用于消歧
+
+编译时也会生成一个诊断用索引：\`web/src/generated/content.catalog.json\`（id → 文件路径、重复项列表等），方便排查冲突与引用缺失。
 
 ---
 
 ### 1.2 Lesson（课时）
 
-目录：\`content/lessons/\`
+目录（两种组织方式都支持）：
+
+- 兼容旧结构：\`content/lessons/*.yaml\`
+- 推荐按 namespace 分组：\`content/<namespace>/lessons/**/*.yaml\`（允许继续分层）
 
 示例：\`content/lessons/intro.yaml\`
 

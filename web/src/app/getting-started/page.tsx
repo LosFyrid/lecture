@@ -37,10 +37,10 @@ export default function GettingStartedPage() {
           </p>
           <ul className="list-disc space-y-2 pl-5">
             <li>
-              <code>content/tracks/*.yaml</code>：定义 Track / Module / Lesson 的组织结构
+              <code>content/**/tracks/**/*.yaml</code>：定义 Track / Module / Lesson 的组织结构
             </li>
             <li>
-              <code>content/lessons/*.yaml</code>：定义 Lesson 的标题、摘要、以及资源条目（items）
+              <code>content/**/lessons/**/*.yaml</code>：定义 Lesson 的标题、摘要、以及资源条目（items）
             </li>
           </ul>
           <p>

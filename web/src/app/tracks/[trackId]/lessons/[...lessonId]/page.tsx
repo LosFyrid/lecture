@@ -18,11 +18,11 @@ export const dynamicParams = false;
 
 export function generateStaticParams() {
   const tracks = getAllTracks();
-  const params: Array<{ trackId: string; lessonId: string }> = [];
+  const params: Array<{ trackId: string; lessonId: string[] }> = [];
   for (const t of tracks) {
     for (const mod of t.modules) {
-      for (const lessonId of mod.lessons) {
-        params.push({ trackId: t.id, lessonId });
+      for (const lessonRef of mod.lessons) {
+        params.push({ trackId: t.id, lessonId: lessonRef.split("/") });
       }
     }
   }
@@ -32,18 +32,19 @@ export function generateStaticParams() {
 export default async function LessonPage({
   params,
 }: {
-  params: Promise<{ trackId: string; lessonId: string }>;
+  params: Promise<{ trackId: string; lessonId: string[] }>;
 }) {
   const { trackId, lessonId } = await params;
+  const lessonRef = lessonId.join("/");
 
   const track = getTrackById(trackId);
   if (!track) notFound();
-  if (!trackHasLesson(track, lessonId)) notFound();
+  if (!trackHasLesson(track, lessonRef)) notFound();
 
-  const lesson = getLessonById(lessonId);
+  const lesson = getLessonById(lessonRef);
   if (!lesson) notFound();
 
-  const { prev, next } = getPrevNextLesson(track, lesson.id);
+  const { prev, next } = getPrevNextLesson(track, lessonRef);
 
   return (
     <div className="space-y-8">
@@ -57,7 +58,7 @@ export default async function LessonPage({
             <Link href={`/tracks/${track.id}`} className="hover:underline">
               {track.title}
             </Link>{" "}
-            / <span className="text-zinc-700 dark:text-zinc-300">{lesson.id}</span>
+            / <span className="text-zinc-700 dark:text-zinc-300">{lessonRef}</span>
           </div>
 
           <div className="flex items-center gap-2 text-sm">

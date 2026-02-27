@@ -33,14 +33,13 @@
   - 支持 Range（对 PDF 翻页/快进很关键）
   - 提供 `/healthz`（k8s 探针）和 `/api/v1/ping`（占位）
 - `content/`：课程结构与课时内容（YAML）
-  - `content/tracks/*.yaml`：Track/Module 的组织结构
-  - `content/lessons/*.yaml`：Lesson 内容（items 列表等）
+  - Track：`content/**/tracks/**/*.yaml`（兼容旧结构 `content/tracks/*.yaml`）
+  - Lesson：`content/**/lessons/**/*.yaml`（兼容旧结构 `content/lessons/*.yaml`）
 - `tools/`：离线归档工具
   - `archive-url-to-pdf.mjs`：URL → PDF → 上传 MinIO
   - `archive-url-to-html.mjs`：URL → **自包含单文件 HTML**（内联 CSS/图片/字体）→ 上传 MinIO
-- `deploy/`：Helm Chart + Flux 示例
-  - `deploy/helm/lecture/`：Helm Chart（web/api + ingress + /assets 保护）
-  - `deploy/flux/examples/`：Flux 的 OCIRepository/HelmRelease 示例
+- `deploy/`：k8s 部署清单
+  - `deploy/k8s/`：Deployment/Service/HTTPRoute 等（kustomize）
 
 ### 1.2 请求路径（生产）
 
@@ -59,7 +58,10 @@
 
 ### 2.1 Track：学习路径
 
-目录：`content/tracks/`
+目录（两种组织方式都支持）：
+
+- 兼容旧结构：`content/tracks/*.yaml`
+- 推荐按 namespace 分组：`content/<namespace>/tracks/**/*.yaml`（允许继续分层）
 
 基本结构：
 
@@ -78,11 +80,16 @@ modules:
 
 注意事项：
 
-- `lessons` 填的是 lesson 的 `id`，必须在 `content/lessons/*.yaml` 存在，否则构建会 fail fast
+- `lessons` 填的是 lesson 引用，必须在任意 `content/**/lessons/**/*.yaml` 中存在，否则构建会 fail fast
+  - ✅ 推荐：写短 `id`（例如 `intro`），要求 **全局唯一**
+  - ✅ 若出现重名：写 namespaced 引用（例如 `ai/v2/intro`，或根目录的 `__root__/intro`）用于消歧
 
 ### 2.2 Lesson：课时
 
-目录：`content/lessons/`
+目录（两种组织方式都支持）：
+
+- 兼容旧结构：`content/lessons/*.yaml`
+- 推荐按 namespace 分组：`content/<namespace>/lessons/**/*.yaml`（允许继续分层）
 
 一个 lesson 主要由：
 
@@ -211,8 +218,8 @@ modules:
 
 Go 网关可限制仅允许某些 prefix 被公网访问（推荐开启）：
 
-- 默认 Helm values：`pdf/,archive/`
 - 环境变量：`ASSET_ALLOWED_PREFIXES=pdf/,archive/`
+- 默认行为：不设置则允许全部 key（即不做前缀限制）
 
 典型现象：
 
@@ -228,7 +235,7 @@ Go 网关可限制仅允许某些 prefix 被公网访问（推荐开启）：
 好处：
 
 - 你更新内容时上传新 key，并改 YAML 指向新 key，浏览器缓存不会“阴魂不散”
-- Go 网关会把带 `.v<数字>` 的 key 视为“不可变”，默认给更激进的 Cache-Control（见 `deploy/helm/lecture/values.yaml`）
+- Go 网关会把带 `.v<数字>` 的 key 视为“不可变”，默认给更激进的 Cache-Control（见 `ASSET_CACHE_CONTROL_IMMUTABLE` / `api/internal/config/config.go`）
 
 ---
 
@@ -316,8 +323,9 @@ npm run dev
 
 ### 5.3 我改了 YAML，为什么页面没变？
 
-`content/*.yaml` 会被编译成 `web/src/generated/content.json`。
+`content/**/tracks/**/*.yaml` 和 `content/**/lessons/**/*.yaml` 会被编译成 `web/src/generated/content.json`。
 
+- 同时会生成一个诊断用索引：`web/src/generated/content.catalog.json`（可用于排查 duplicate id / 引用缺失等问题）
 - `npm run dev` 在启动时会执行 `predev`，自动生成一次
 - 如果你在 dev server 运行期间改 YAML：
   - 最稳妥：重启 `npm run dev`
@@ -325,11 +333,15 @@ npm run dev
 
 ---
 
-## 6. k8s 部署（k3s + Traefik + cert-manager + Flux）
+## 6. k8s 部署（deploy/k8s）
 
-### 6.0 项目约定（Harbor / Flux / Ingress 配置时需要匹配）
+本仓库当前提供的是一套 **kustomize 清单**（不是 Helm Chart / Flux 示例），入口在：
 
-这里列的是“项目本身写死/内建”的接口约定；这些信息会直接影响你如何在 Harbor/Flux/Ingress 中落地。
+- `deploy/k8s/kustomization.yaml`
+
+### 6.0 项目约定（Ingress / 镜像 / Secret 配置时需要匹配）
+
+这里列的是“项目本身写死/内建”的接口约定；这些信息会直接影响你如何在 Ingress/Gateway 中落地。
 
 **A) 站内路径约定（同域名）**
 
@@ -344,64 +356,35 @@ npm run dev
 - `web` 容器：`3000`
 - `api` 容器：`8080`
 
-Chart 的 Service/Ingress 默认也按这两个端口配置；如果你要改端口，需要同时改 values + 模板（当前 Chart 未提供端口可配置到任意值的完整抽象）。
+k8s 清单里对应关系：
 
-**C) Helm Chart 的 fail-fast 校验**
+- `deploy/k8s/service.yaml`：对内暴露 `web:80` + `api:8080`
+- `deploy/k8s/httproute.yaml`：将 `/assets` 与 `/api` 路由到 `api:8080`，其余路径路由到 `web:80`
 
-Chart 在渲染阶段会校验必要字段（缺失会直接 `helm install`/`helm upgrade` 失败），见 `deploy/helm/lecture/templates/_validate.tpl`。因此在 Flux 中，你必须至少设置：
+**C) kustomize 清单里你最常需要改的字段**
 
-- `web.image.repository` + `web.image.tag`
-- `api.image.repository` + `api.image.tag`
-- `api.minio.endpoint`
-- MinIO 凭据：`api.minio.existingSecret` **或** `api.minio.accessKeyId + api.minio.secretAccessKey`
-- `ingress.hosts`（当 `ingress.enabled=true`）
-- `ingress.certManager.clusterIssuer`（当 `ingress.certManager.enabled=true`）
+- 镜像：`deploy/k8s/deployment.yaml`
+  - `containers[name=web].image`
+  - `containers[name=api].image`
+- 私有镜像拉取：`deploy/k8s/deployment.yaml`
+  - `spec.template.spec.imagePullSecrets`（当前例子是 `harbor-auth`）
+  - `spec.template.spec.serviceAccountName`（当前例子是 `lecture`）
+- 域名：`deploy/k8s/httproute.yaml` → `spec.hostnames`
+- S3/MinIO（后端 /assets 网关）：`deploy/k8s/deployment.yaml` → `containers[name=api].env`
+  - `MINIO_ENDPOINT / MINIO_BUCKET / MINIO_REGION`
+- S3 凭据 Secret（默认约定）：`deploy/k8s/deployment.yaml`
+  - Secret 名：`lecture-s3`
+  - key：`accessKeyId` / `secretAccessKey`（模板见 `deploy/k8s/secret-s3.example.yaml`）
+- 资源访问前缀白名单（可选，但强烈建议）：`ASSET_ALLOWED_PREFIXES`（例如 `pdf/,archive/`）
+  - 若 key 不在允许前缀里，`/assets/...` 会直接 403（即使 object 存在）
 
-**D) MinIO Secret 约定（默认 key 名）**
+**D) Harbor / 镜像 tag 约定**
 
-当你使用 `api.minio.existingSecret` 时，默认会从 Secret 中读取：
-
-- `accessKeyId`（可通过 `api.minio.accessKeyIdKey` 改名）
-- `secretAccessKey`（可通过 `api.minio.secretAccessKeyKey` 改名）
-
-如果你们集群里已有统一的 Secret key 命名规范，可以通过 values 把这两个 key 映射到你们的命名。
-
-**E) 资源访问前缀白名单（默认约定）**
-
-为了避免误把 bucket 里的其它对象暴露到公网，Chart 默认：
-
-- `api.env.assetAllowedPrefixes: "pdf/,archive/"`
-
-这意味着：
-
-- 你的 `assetKey` 最好都放在 `pdf/...` 或 `archive/...`
-- 否则 `/assets/...` 会直接 403（即使 object 在 bucket 中确实存在）
-
-**F) Harbor / 镜像 tag 约定**
-
-项目本身 **不强制** 你使用某种 Harbor repo 命名或 tag 规则；Chart 只要求你提供 `repository` 和 `tag`。
+项目本身 **不强制** 你使用某种 Harbor repo 命名或 tag 规则；只要更新 `deploy/k8s/deployment.yaml` 里的镜像字段即可。
 
 唯一与“如何构建镜像”强相关的约定是：
 
 - **web 镜像构建上下文必须包含 `content/`**（见 `web/Dockerfile`），所以需要在仓库根目录 build（见下文 6.1）
-
-**G) Flux / Chart 发布方式**
-
-项目同样 **不强制** 你必须用哪种 Flux Source（GitRepository / OCIRepository / HelmRepository）。
-但仓库提供的例子是用 OCI Chart（Harbor 作为 OCI Registry）：
-
-- `deploy/flux/examples/ocirepository.yaml`
-- `deploy/flux/examples/helmrelease.yaml`
-
-如果你们更习惯用 Git source 或 Helm repo，也可以改用自己的方式；只要最终 `HelmRelease.values` 能填齐上面 C) 的必填项即可。
-
-**H) 私有 Harbor 拉镜像的坑（Chart 当前没有内建 imagePullSecrets）**
-
-Helm Chart 当前没有 `imagePullSecrets` 的 values/模板（也没有 serviceAccount 抽象）。
-如果你们 Harbor 是私有的，你需要在集群侧保证 Pod 能拉镜像，例如：
-
-- 在 namespace 里配置默认的 `imagePullSecret`（或给默认 ServiceAccount patch）
-- 或者你们内部已有全局镜像拉取策略
 
 ### 6.1 构建并推送镜像（Harbor）
 
@@ -419,51 +402,22 @@ docker build -f api/Dockerfile -t harbor.example.com/lecture/api:<tag> api
 docker push harbor.example.com/lecture/api:<tag>
 ```
 
-### 6.2 Helm values（必须配置项）
-
-Chart：`deploy/helm/lecture/`
-
-至少要填：
-
-- `web.image.repository/tag`
-- `api.image.repository/tag`
-- `api.minio.endpoint/bucket` + MinIO Secret（推荐 existingSecret）
-- `ingress.hosts` + `ingress.tls.secretName`
-
-参考：`deploy/helm/lecture/values.yaml`
-
-### 6.3 MinIO Secret（推荐 existingSecret）
-
-Chart 支持引用已有 Secret（推荐），例如：
+### 6.2 应用清单（kustomize）
 
 ```bash
-kubectl -n lecture create secret generic lecture-minio \
-  --from-literal=accessKeyId="..." \
-  --from-literal=secretAccessKey="..."
+kubectl apply -k deploy/k8s
 ```
 
-values 中配置：
+如果你需要改 namespace / hostnames / 镜像等，建议先在 `deploy/k8s/` 里按你们的规范做 overlay，再由 CI/CD 或 GitOps 持续应用。
 
-```yaml
-api:
-  minio:
-    existingSecret: lecture-minio
-```
+### 6.3 S3/MinIO Secret
 
-### 6.4 Flux（示例）
+你需要创建一个 Secret（默认名 `lecture-s3`）并包含这两个 key：
 
-示例清单在：`deploy/flux/examples/`
+- `accessKeyId`
+- `secretAccessKey`
 
-- `namespace.yaml`：命名空间
-- `ocirepository.yaml`：从 Harbor 拉 chart（OCI）
-- `helmrelease.yaml`：HelmRelease（配置 values）
-
-Traefik CRD 的坑：
-
-- 有些集群使用 `traefik.containo.us/v1alpha1`
-- 有些使用 `traefik.io/v1alpha1`
-
-values 里通过 `ingress.traefik.crdApiVersion` 适配。
+模板见：`deploy/k8s/secret-s3.example.yaml`（注意文件头注释：不要原样 apply）。
 
 ---
 
@@ -511,9 +465,8 @@ values 里通过 `ingress.traefik.crdApiVersion` 适配。
 
 ## 8. 修改点导航（新人维护者从这里找入口）
 
-- 课程结构：`content/tracks/`、`content/lessons/`
+- 课程结构：`content/**/tracks/**/*.yaml`、`content/**/lessons/**/*.yaml`
 - 前端 UI：`web/src/app/`、`web/src/components/`
 - /assets 网关：`api/internal/assets/handler.go`
 - 归档工具：`tools/archive-url-to-pdf.mjs`、`tools/archive-url-to-html.mjs`
-- k8s/Helm：`deploy/helm/lecture/`
-- Flux 示例：`deploy/flux/examples/`
+- k8s：`deploy/k8s/`

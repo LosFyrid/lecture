@@ -49,7 +49,7 @@ export default function Home() {
 
         {tracks.length === 0 ? (
           <div className="rounded-xl border border-dashed border-black/15 p-6 text-sm text-zinc-600 dark:border-white/15 dark:text-zinc-300">
-            还没有 Track。你可以从 <code>content/tracks/*.yaml</code> 开始添加。
+            还没有 Track。你可以从 <code>content/**/tracks/**/*.yaml</code> 开始添加。
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
@@ -86,4 +86,3 @@ export default function Home() {
     </div>
   );
 }
-

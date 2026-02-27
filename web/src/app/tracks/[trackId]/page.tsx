@@ -56,7 +56,7 @@ export default async function TrackPage({
                 return (
                   <li key={lessonId}>
                     <Link
-                      href={`/tracks/${track.id}/lessons/${lesson.id}`}
+                      href={`/tracks/${track.id}/lessons/${lessonId}`}
                       className="block rounded-xl border border-black/5 px-4 py-3 hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5"
                     >
                       <div className="font-medium">{lesson.title}</div>

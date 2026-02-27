@@ -40,12 +40,18 @@
 
 ### 1) 新增/修改 Track（学习路径）
 
-1. 在 `content/tracks/` 下创建一个 `*.yaml`
+1. 在 `content/` 下创建一个 Track YAML（两种组织方式都支持）：
+   - 兼容旧结构：`content/tracks/*.yaml`
+   - 推荐按 namespace 分组：`content/<namespace>/tracks/**/*.yaml`（允许继续分层）
 2. 填写：
    - `id`: 唯一 ID（URL 会使用它）
    - `title`: 展示标题
    - `modules`: 模块数组（每个模块有 `id/title/lessons`）
-3. `lessons` 里写的是 lesson 的 `id`（必须在 `content/lessons/` 中存在）
+3. `lessons` 里写的是 lesson 引用（必须在任意 `content/**/lessons/**/*.yaml` 中存在）：
+   - ✅ 推荐：写短 `id`（例如 `intro`），要求 **全局唯一**
+   - ✅ 若出现重名：写 namespaced 引用（例如 `ai/v2/intro`，或根目录的 `__root__/intro`）用于消歧
+
+> 编译时会额外生成一个诊断索引：`web/src/generated/content.catalog.json`（id → 文件路径、重复项列表等），方便排查引用问题。
 
 示例：
 
@@ -62,7 +68,9 @@ modules:
 
 ### 2) 新增/修改 Lesson（课时）
 
-1. 在 `content/lessons/` 下创建一个 `*.yaml`
+1. 在 `content/` 下创建一个 Lesson YAML（两种组织方式都支持）：
+   - 兼容旧结构：`content/lessons/*.yaml`
+   - 推荐按 namespace 分组：`content/<namespace>/lessons/**/*.yaml`（允许继续分层）
 2. 填写：
    - `id`, `title`
    - `summary`（可选）
@@ -188,7 +196,7 @@ Go 网关会对 `*.v<数字>...` 的 key 使用更激进缓存策略（默认 1 
 ### 更新资源（PDF/归档）
 
 1. 上传新文件到 MinIO（建议新 key，不覆盖旧 key）
-2. 修改 `content/lessons/*.yaml` 引用新的 `assetKey`
+2. 修改 `content/**/lessons/**/*.yaml` 引用新的 `assetKey`
 3. 提交 Git（内容结构版本化）
 4. 触发构建发布（见下）
 

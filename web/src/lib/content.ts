@@ -103,14 +103,14 @@ export function getPrevNextLesson(
   const index = sequence.indexOf(lessonId);
   if (index === -1) return {};
 
-  const prevId = sequence[index - 1];
-  const nextId = sequence[index + 1];
+  const prevRef = sequence[index - 1];
+  const nextRef = sequence[index + 1];
 
-  const prevLesson = prevId ? getLessonById(prevId) : null;
-  const nextLesson = nextId ? getLessonById(nextId) : null;
+  const prevLesson = prevRef ? getLessonById(prevRef) : null;
+  const nextLesson = nextRef ? getLessonById(nextRef) : null;
 
   return {
-    ...(prevLesson ? { prev: { id: prevLesson.id, title: prevLesson.title } } : {}),
-    ...(nextLesson ? { next: { id: nextLesson.id, title: nextLesson.title } } : {}),
+    ...(prevRef && prevLesson ? { prev: { id: prevRef, title: prevLesson.title } } : {}),
+    ...(nextRef && nextLesson ? { next: { id: nextRef, title: nextLesson.title } } : {}),
   };
 }
