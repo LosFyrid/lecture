@@ -1,62 +1,95 @@
 id: agent-skills-401-testing-and-iteration
-title: "测试与迭代：把“能用”变成“稳定可用”"
+title: "第 4 课：测试与迭代——把“能用”变成“稳定可用”"
 summary: |
-  Skill 是“活文档”。你需要用触发测试、功能测试与性能对比三类测试把它迭代到稳定：该触发时触发、不该触发时不触发；流程能跑通；相对 baseline 确实更省交互/更少错误。
+  Skill 更像“活文档”而不是一次性交付：它需要用触发测试、功能测试与性能对比三类测试迭代到稳定——该触发时触发、不该触发时不触发；流程能跑通；相对 baseline 真实减少来回澄清与失败重试。
 items:
   - type: md
-    title: 学习目标
+    title: 导入：为什么 Skill 需要测试（以及为什么“感觉还行”不够）
     body: |
-      学完本课，你应该能够：
+      Skill 看起来像“文档”，但它会影响系统行为：什么时候触发、触发后如何执行。
+      因此它也会像代码一样出现回归：
 
-      - 选择合适的测试方式：手动（Claude.ai）/脚本化（Claude Code）/程序化（API）。
-      - 为一个 skill 写出最小测试集：should trigger / should not trigger / functional cases。
-      - 根据反馈信号（undertrigger/overtrigger/execution issues）定位应该改 description 还是改正文。
+      - 你改了一句 description，结果开始乱触发；  
+      - 你加了一段步骤，结果触发后变慢、质量下降；  
+      - 你为了“覆盖更多情况”把正文写长，结果把真正需要的信息挤没了。
+
+      这节课要回答三个问题：
+
+      1) Skill 的测试应该覆盖哪些维度？（触发 / 功能 / 性能）  
+      2) 你应该用哪种方式来跑测试？（手动 / 脚本化 / API）  
+      3) 当出现 under-trigger / over-trigger / execution issue 时，怎样定位该改哪里？
 
   - type: md
-    title: 三种测试层级（按你的风险与用户规模选）
+    title: 概念对齐：三类测试 vs 三种执行方式
     body: |
-      Skill 的测试可以从轻到重分三档：
+      材料里同时出现了两套分类：一套是“测什么”，一套是“怎么跑”。
 
-      1) **手动测试（Claude.ai）**  
-         - 优点：最快、零成本  
-         - 适合：个人使用、小团队内部
-      2) **脚本化测试（Claude Code）**  
-         - 优点：可重复、适合回归  
-         - 适合：你在频繁改动 skill，需要确保“没改坏”
-      3) **程序化测试（API）**  
-         - 优点：可系统化跑评测集、统计触发率/失败率  
-         - 适合：面向大量用户、生产级发布
+      **测什么（测试维度）**  
+      1) 触发测试（Triggering）：该不该加载。  
+      2) 功能测试（Functional）：加载后能不能把流程跑通、输出是否符合要求。  
+      3) 性能对比（Performance comparison）：相对基线（baseline）是否更少来回、更少失败、更省成本。
 
-      原则：**skill 面向的人越多，越需要可重复测试**。
+      **怎么跑（执行方式）**  
+      - 手动测试：在对话里直接试（最快）。  
+      - 脚本化测试：把测试用例写成可重复运行的脚本（适合回归）。  
+      - API 程序化测试：用评测集系统化跑统计（适合规模化/生产）。
+
+      你可以把它理解成一个二维选择：先决定要测哪些维度，再决定用哪种方式跑。
 
   - type: md
-    title: 推荐测试覆盖（3 件事）
+    title: 三种测试强度：从“个人可用”到“可规模化发布”
     body: |
-      材料推荐把测试分成三类（你可以直接当模板）：
+      材料建议按质量要求与影响范围选择测试强度，而不是一上来就追求“最重的工程化”：
 
-      1) 触发测试（Triggering）
-      - ✅ 明显应该触发的请求能触发
-      - ✅ 同义改写/口语化表达也能触发
+      **1) 手动测试（Claude.ai）**  
+      适合：个人使用、小团队内部、快速迭代。  
+      优点是零门槛；缺点是难做回归（很难保证每次都测同一组输入）。
+
+      **2) 脚本化测试（Claude Code）**  
+      适合：你在频繁改动 skill，希望每次改动后都能“跑一遍回归”。  
+      它更像单元测试：不一定覆盖所有情况，但能防止把昨天能跑通的东西改坏。
+
+      **3) API 程序化测试（Skills API）**  
+      适合：面向大量用户，或你需要统计触发率/失败率/成本等指标的场景。  
+      它让“成功标准”更容易量化，但需要你有一套测试集与统计方法。
+
+      一个经验性的选择原则是：skill 影响的人越多，越值得投入更可重复的测试。
+
+  - type: md
+    title: 推荐最小覆盖：触发 / 功能 / 性能（各解决一个不同问题）
+    body: |
+      材料推荐的最小覆盖由三部分组成，它们分别对应三类常见失败：
+
+      **1) 触发测试（Triggering）**：避免“该触发不触发”和“乱触发”  
+      你可以用一组 should trigger / should NOT trigger 语句做最小验证：
+      - ✅ 明显应该触发的请求能触发  
+      - ✅ 同义改写/口语化表达也能触发  
       - ❌ 不相关主题不会触发
 
-      2) 功能测试（Functional）
-      - 输出结构是否正确（格式/字段/文件）
-      - 工具调用是否成功（若有 MCP/脚本）
-      - 错误处理是否按预期工作（常见失败能被解释并给出下一步）
+      原文给了一个例子测试集（ProjectHub）：
+      - Should trigger：例如“帮我初始化 ProjectHub 项目”“为 Q4 规划创建项目”等  
+      - Should NOT trigger：例如“旧金山天气怎么样”“帮我写 Python 代码”等
 
-      3) 性能对比（Performance Comparison）
-      - 同一任务对比：有 skill vs 无 skill  
-      - 指标：对话轮数、tool calls、token 消耗、失败重试次数
+      **2) 功能测试（Functional）**：避免“触发了但跑不通”  
+      材料建议用 Given/When/Then 写法把 end-state 写清楚。例子是“创建项目并生成 5 个任务”：  
+      Then 里要能检查：项目是否创建、任务是否创建、属性是否正确、是否关联到项目、是否没有 API 错误。
+
+      **3) 性能对比（Performance comparison）**：避免“更复杂但没带来收益”  
+      材料给了一个很直观的对比例子：  
+      - 无 skill：15 次来回消息、3 次失败 API 调用需要重试、约 12,000 tokens  
+      - 有 skill：只问 2 个澄清问题、0 次失败 API 调用、约 6,000 tokens  
+
+      这些数字不是常数，但它表达的判断方式很通用：**skill 是否减少了来回澄清与失败重试**。
 
   - type: md
-    title: 一个可直接复用的“触发测试集”模板
+    title: 一个可直接复用的“触发测试集”模板（10–20 条足够起步）
     body: |
-      为你的 skill 写一份最小测试集（建议 10-20 条）：
+      你可以为每个 skill 准备一份最小测试集（材料建议 10–20 条），把它当成“回归门槛”：
 
       ```text
       Should trigger:
       - ...
-      - ...
+      - ...（同义改写）
 
       Should NOT trigger:
       - ...
@@ -68,51 +101,85 @@ items:
       - Then:
       ```
 
-      小技巧：把 should trigger 的语句故意做“同义改写”，能更快暴露 description 过窄的问题。
+      一个很有效的小技巧是：把 should trigger 的语句故意做“同义改写”，它能更快暴露 description 过窄的问题。
 
   - type: md
     title: 迭代策略：先打穿一个难任务，再扩覆盖面
     body: |
-      材料里一个很实用的建议：
+      材料里有一个很强的建议：先选一个“典型但容易失败”的任务，反复迭代到稳定成功，再把成功做法抽象成 skill。
 
-      - 先挑一个“最典型但也最容易失败”的任务，把它迭代到稳定成功；
-      - 再把成功方法抽象成 skill；
-      - 最后再扩展到更多测试用例做覆盖。
-
-      直觉：相比一开始就铺很多测试，先拿到一个强信号（能稳定跑通的 workflow）更划算。
-
-  - type: md
-    title: 反馈信号 → 你该改哪里
-    body: |
-      Undertriggering（触发不足）：
-      - 表现：应该触发却没触发；用户不得不手动启用；用户问“什么时候该用”  
-      - 优先修复：**description**（补充触发短语/术语/文件类型）
-
-      Overtriggering（触发过度）：
-      - 表现：不相关问题也触发；用户频繁关闭；造成困扰  
-      - 优先修复：description 更具体 + 添加负触发（Do NOT use...）
-
-      Execution issues（执行问题）：
-      - 表现：步骤不稳定、工具调用失败、需要用户纠正  
-      - 优先修复：**正文 instructions**（更具体、加验证门、加错误处理、必要时加脚本校验）
+      这种顺序的好处是：
+      - 你能更快得到强反馈信号（到底哪一步在翻车）；  
+      - 你不会一开始就被“覆盖面焦虑”拖垮；  
+      - 当你把它抽象成 skill 后，再扩展到更多测试用例，更像在做回归与泛化。
 
   - type: md
-    title: 工具：skill-creator（加速生成与评审）
+    title: 反馈信号 → 你该改哪里（description 还是正文）
     body: |
-      材料提到一个高效套路：用 skill-creator 来“生成草稿 + 发现常见问题 + 迭代改进”。
+      材料把常见反馈信号分成三类，并给了对应的修复方向：
 
-      你可以把它当成一个“skill 的 linter + 教练”：
-      - 生成：从自然语言需求生成合规 frontmatter + SKILL.md 骨架
-      - 评审：指出描述过泛/缺触发/结构缺失等问题
-      - 迭代：把失败案例喂回去，让它建议如何改写
+      **Under-triggering（触发不足）**  
+      信号：skill 该加载时没加载；用户手动启用；用户/支持渠道反复问“什么时候该用”。  
+      常见修复：把 description 写得更具体，补充用户会说的术语/同义表达/文件类型。
 
-      备注：它帮你“设计与改写”，但不会替你完成真正的量化评测（那需要你自己的测试集与统计）。
+      **Over-triggering（触发过度）**  
+      信号：skill 在不相关问题上也加载；用户关闭；对用途产生困惑。  
+      常见修复：收窄范围 + 加负触发（Do NOT use...），明确哪些相邻问题不属于这个 skill。
+
+      **Execution issues（执行问题）**  
+      信号：触发了，但步骤不稳定、工具调用失败、输出结构漂移、需要用户纠正。  
+      常见修复：改正文 instructions（把步骤写具体、加验证门、补错误处理）；对关键校验考虑脚本化。
+
+      这套“症状→改动位置”的分流，能显著减少盲目试错：触发问题优先修 description，执行问题优先修正文。
 
   - type: md
-    layout: inline
+    title: skill-creator：用来加速设计与改写，但它不是评测系统
     body: |
-      来源材料：
+      材料提到 `skill-creator` 可以帮助你“生成草稿 + 发现常见问题 + 迭代改进”。从能力边界看，它更像一个写作教练/检查器：
 
-      - `original/4-26-02-27/The-Complete-Guide-to-Building-Skill-for-Claude.pdf`
-      - 重点页：Testing and iteration（第 15–17 页）
+      - 生成：从自然语言需求生成合规 frontmatter + SKILL.md 骨架  
+      - 评审：指出描述过泛、缺触发、结构问题；提示潜在 over/under-trigger 风险  
+      - 迭代：把失败案例喂回去，让它建议如何改写（例如“用这次对话里发现的问题改进该 skill”）
 
+      材料也强调了限制：`skill-creator` 不会替你跑自动化评测，也不会自动产出量化指标。
+
+      原文给出的使用句式是：
+      - “Use the skill-creator skill to help me build a skill for [your use case]”
+
+  - type: md
+    title: 小练习：把你的 skill 变成“可回归”的对象
+    body: |
+      现在为你的 skill 做一个最小的“可回归包”：
+
+      1) 写 10 条 should trigger + 10 条 should NOT trigger（尽量包含同义改写）。  
+      2) 写 1 条 functional scenario（Given / When / Then），并把 Then 写成可检查的 end-state（例如：生成了哪些文件、有哪些必填字段、工具调用是否无错误）。  
+      3) 记录一次基线（baseline）：没有 skill 时需要多少轮澄清、多少次工具调用；有 skill 后是否减少。
+
+      这些东西不需要一开始就“很科学”，但它们会让你每次迭代都更快知道：到底变好了还是变差了。
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-01-26（PDF 元数据 CreationDate；在线页面可能有更新）
+      - 来源：Anthropic / Claude（Agent Skills 指南）
+      - 建议：对照原文的三类测试（trigger/functional/performance）检查你的测试集是否覆盖“触发与执行”两条主线；并复核 under/over-triggering 的修复建议是否与你的症状一致。
+
+  - type: url
+    title: "参考：skill-creator（示例 Skill，含结构与写作方式）"
+    url: https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      材料里的测试维度与反馈信号划分具有可迁移性，但具体“在哪个界面点击”“API 参数叫什么”可能会随平台更新。
+      如果你发现界面路径或字段名不一致，可以保留本课的核心做法不变：先用最小测试集复现问题，再决定改触发还是改正文。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      如果你只能记住一句话：把测试当成“定位问题归属”的工具，而不是当成“形式上的打卡”。
+
+      - 触发不稳：先从 should trigger / should NOT trigger 的集合开始，迭代 description。  
+      - 执行不稳：把步骤写具体、加验证门、补错误处理；必要时脚本化关键校验。  
+      - 价值不明：做一次有/无 skill 的对比，至少记录“对话轮数、工具调用次数、失败重试次数”三项。

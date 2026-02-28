@@ -1,27 +1,48 @@
 id: agent-skills-602-troubleshooting-and-checklist
-title: "排障与检查清单：从“上传失败/不触发/不按指令”到稳定运行"
+title: "第 7 课：排障与检查清单——从“上传失败/不触发/不按指令”到稳定运行"
 summary: |
-  Skill 的常见失败模式高度集中：上传失败（结构/命名/YAML 错）、不触发或乱触发（description 写法问题）、工具调用失败（MCP 连接/工具名/鉴权）、不按指令（正文太散/太长/太含糊）、上下文过大（没有渐进式加载）。本课给出可复用的排障流程与检查清单。
+  Skill 的常见失败模式高度集中：上传失败（结构/命名/YAML）、不触发或乱触发（description）、工具调用失败（MCP 连接/鉴权/工具名）、不按指令（正文过长或含糊）、上下文过大（没做渐进式加载）。本课把材料中的排障顺序整理成一套“先定位归属，再对症修改”的流程，并附发布前检查清单。
 items:
   - type: md
-    title: 学习目标
+    title: 导入：排障先做“归因”，不要靠直觉乱试
     body: |
-      学完本课，你应该能够：
+      Skill 出问题时，第一反应很容易是“模型不听话”。
+      但材料里的经验更像是在说：很多问题其实是工程层面的，具有稳定的归因路径。
 
-      - 用“先结构、再触发、再执行、再性能”的顺序排障（不要乱试）。
-      - 快速定位问题属于：命名/格式 → frontmatter → instructions → MCP/工具 → 上下文规模。
-      - 在发布前用 checklist 做一次“硬性合规检查”。
+      这节课给你一个可复用的排障顺序：
+
+      1) 先确认结构与格式（能不能上传/解析）  
+      2) 再看触发（该不该加载）  
+      3) 再看执行（工具/步骤能不能跑通）  
+      4) 最后看性能与上下文（为什么变慢/变差）
+
+      这个顺序的好处是：每一步都能把问题空间缩小，而不是一上来就在“各种改法”里乱撞。
 
   - type: md
-    title: 1) 上传失败（最常见：文件名与 YAML）
+    title: 概念对齐：把失败分成四类，才能快速定位改哪一层
     body: |
-      常见报错：找不到 SKILL.md  
-      - 原因：文件名不精确（大小写/拼写）  
-      - 处理：确认 skill 文件夹内确实有 `SKILL.md`
+      你可以把 skill 的失败分成四类（从“硬错误”到“软退化”）：
 
-      常见报错：Invalid frontmatter  
+      1) **结构/格式错误**：系统根本读不到（找不到 `SKILL.md`、YAML 不合法、命名不合规）。  
+      2) **触发错误**：读得到，但不触发或乱触发（description 范围/短语问题）。  
+      3) **执行错误**：触发了，但工具调用失败/步骤跑不稳（MCP 连接/鉴权/工具名/正文太含糊）。  
+      4) **上下文与性能退化**：能跑但越来越慢/越来越不稳定（内容太大、skills 太多、未做按需加载）。
+
+      对应到你要改的地方也很清晰：  
+      结构/格式 → 文件与 YAML；触发 → frontmatter；执行 → 正文/工具；性能 → 分层与拆分。
+
+  - type: md
+    title: 1) 上传失败：先查文件名与 YAML（最快、也最常见）
+    body: |
+      材料列的上传失败场景都很“硬”：不是模型问题，而是系统无法解析。
+
+      **报错：找不到 SKILL.md**  
+      - 原因：文件名不精确（大小写/拼写）  
+      - 处理：确认 skill 文件夹内确实有 `SKILL.md`（可用 `ls -la` 复核）
+
+      **报错：Invalid frontmatter**  
       - 原因：YAML 分隔符缺失、引号未闭合、缩进错误  
-      - 处理：确保：
+      - 处理：确保 frontmatter 形态是：
 
       ```yaml
       ---
@@ -30,12 +51,12 @@ items:
       ---
       ```
 
-      常见报错：Invalid skill name  
-      - 原因：name 有空格/大写/下划线  
+      **报错：Invalid skill name**  
+      - 原因：`name` 有空格/大写/下划线  
       - 处理：改为 kebab-case（小写 + 中划线）
 
   - type: md
-    title: 2) Skill 不触发（优先修 description）
+    title: 2) Skill 不触发：优先修 description（并用一句诊断问题找缺口）
     body: |
       表现：skill 几乎从不自动加载。
 
@@ -50,7 +71,7 @@ items:
       - 是否包含关键文件类型（如适用）
 
   - type: md
-    title: 3) Skill 触发过度（加负触发 + 收窄范围）
+    title: 3) Skill 触发过度：加负触发 + 收窄范围（让边界可见）
     body: |
       表现：skill 在不相关的问题上也加载。
 
@@ -63,7 +84,7 @@ items:
          - 明确只覆盖某类工作流，不覆盖“泛领域问答”
 
   - type: md
-    title: 4) MCP 连接/工具调用失败（先确认不是 Skill 的错）
+    title: 4) MCP 连接/工具调用失败：先把“连接层问题”排除掉
     body: |
       表现：skill 触发了，但工具调用失败。
 
@@ -75,7 +96,7 @@ items:
       4) 核对工具名（大小写敏感、是否与文档一致）
 
   - type: md
-    title: 5) 触发了但“不按指令做”（instructions 写法问题）
+    title: 5) 触发了但“不按指令做”：把正文改成“可执行 + 可验证”
     body: |
       常见原因与修复：
 
@@ -93,10 +114,10 @@ items:
       - 校验脚本是确定性的  
       - 对 schema/格式/依赖检查，优先 `scripts/validate.py`
 
-      备注（材料的经验）：把“认真做/别偷懒”的提示放到用户 prompt 里，往往比埋在 SKILL.md 更有效。
+      备注（材料的经验）：如果你要加“认真做/别偷懒”的提示，把它放到用户 prompt 里往往比埋在 SKILL.md 更有效。
 
   - type: md
-    title: 6) 上下文过大（变慢/质量下降）
+    title: 6) 上下文过大：拆分、按需加载、控制规模
     body: |
       典型原因：
       - SKILL.md 太大，加载后噪声淹没任务
@@ -138,10 +159,36 @@ items:
       - [ ] 记录版本（metadata.version）与变更点
 
   - type: md
-    layout: inline
+    title: 小练习：用这份清单做一次“发布门禁”
     body: |
-      来源材料：
+      选一个你正在写的 skill（或用材料示例仓库里的任意 skill），按上面的 checklist 走一遍：
 
-      - `original/4-26-02-27/The-Complete-Guide-to-Building-Skill-for-Claude.pdf`
-      - 重点页：Troubleshooting（第 25–27 页）、Quick checklist（第 30 页）
+      1) 先故意制造一个错误（例如把 `SKILL.md` 改成 `skill.md`），观察系统报错与修复路径。  
+      2) 再写 3 条 should trigger 和 3 条 should NOT trigger，试一次是否存在 under/over-trigger。  
+      3) 最后把正文里最关键的一个校验点改成“可检查条件列表”，观察执行稳定性是否提升。
 
+      这个练习的目标是：让你形成一种“先归因，再改动”的排障节奏。
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-01-26（PDF 元数据 CreationDate；在线页面可能有更新）
+      - 来源：Anthropic / Claude（Agent Skills 指南）
+      - 建议：排障章节可以当成“字典”使用：遇到问题时按原文的症状标题定位；同时重点看两条通用技巧：① 用 “When would you use this skill?” 反推 description 缺口；② 用脚本承载关键校验，把概率性解释转成确定性检查。
+
+  - type: url
+    title: "参考：Agent Skills Best Practices（可用于对照排障修复方向）"
+    url: https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices
+    mode: open
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      如果你发现自己又回到了“凭感觉乱改”，可以用一条简单的分流把节奏拉回来：
+
+      - **上传/解析失败**：先修文件结构、命名、YAML。  
+      - **不触发/乱触发**：先修 frontmatter 的 description（短语、范围、负触发）。  
+      - **触发了但跑不稳**：先修正文（具体步骤、验证门、错误处理；关键校验脚本化）。  
+      - **能跑但变慢/变差**：回到渐进式加载（把长细节移出正文、减少同时启用的 skills）。
+
+      这套顺序的目标不是“快点修好”，而是让 skill 的行为更可预测、更可迭代。

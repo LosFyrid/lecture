@@ -1,36 +1,109 @@
 id: agent-skills-references
-title: "资源与参考：示例 Skills、文档索引与 frontmatter 模板"
+title: "附录：资源与参考——示例 Skills、文档索引与 frontmatter 模板"
 summary: |
-  汇总材料中提到的学习资源与可复用模板：官方文档/博客/示例 skills、skill-creator 的使用方式，以及 frontmatter 的“必填/全量字段”参考。
+  汇总材料中提到的学习资源与可复用模板：官方文档/博客/示例 skills、skill-creator 的用法，以及 frontmatter 的“必填/全量字段”参考。你可以把它当成一个可反复回来的索引页。
 items:
   - type: md
-    title: 推荐资源（按“先学会再查细节”的顺序）
+    title: 如何使用这份索引：先建立直觉，再按需查细节
     body: |
-      如果你在构建第一个 skill，建议顺序是：
+      当你在做第一个 skill 时，不建议一上来就把所有文档都读完。
+      更高效的顺序通常是：
 
       1) 先读：Best Practices / Skills Documentation（建立直觉）
       2) 再查：API Reference / MCP Documentation（用到再查）
       3) 最后看：示例 skills（对齐质量上限）
 
-      材料提到的资源类型包括：
+      这对应三种不同的学习目标：
+      - Best Practices：告诉你“为什么这样设计”（心智模型）  
+      - API/MCP：告诉你“字段与约束是什么”（实现细节）  
+      - 示例 skills：告诉你“高质量长什么样”（对齐上限）
 
-      - 官方文档：Skills 文档、API Reference、MCP 文档等
-      - 博客文章：介绍 Agent Skills、如何为 Claude Code 构建 skills 等
-      - 示例仓库：公开的 skills 仓库（含可自定义的技能）
+      备注：平台能力会更新，具体 UI 路径与 API 字段可能变化；建议以最新官方文档为准。
 
-      备注：由于平台能力会更新，建议你以最新官方文档为准。
+  - type: md
+    title: 官方文档（建议先收藏，按需打开）
+    body: |
+      材料列出的“官方资源”主要覆盖四块：skills 概览、最佳实践、API 文档、MCP 文档。
+
+      - Overview：告诉你技能是什么、怎么集成、核心概念  
+      - Best Practices：告诉你三层渐进式加载、触发与写作的经验做法  
+      - API Reference：当你要程序化管理/调用 skills 时必查  
+      - MCP Documentation：当你的 skill 依赖连接器/工具编排时必查
+
+  - type: url
+    title: "Agent Skills Overview"
+    url: https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview
+    mode: open
+
+  - type: url
+    title: "Agent Skills Best Practices"
+    url: https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices
+    mode: open
+
+  - type: url
+    title: "Claude API Overview（API 文档入口）"
+    url: https://platform.claude.com/docs/en/api/overview
+    mode: open
+
+  - type: url
+    title: "Model Context Protocol（MCP）"
+    url: https://modelcontextprotocol.io
+    mode: open
+
+  - type: md
+    title: 博客文章（用来建立“为什么这样做”的直觉）
+    body: |
+      材料列了一组博客文章，它们往往比 API 文档更适合“第一次建立直觉”：
+
+      - 介绍 Agent Skills 的定位与使用面  
+      - 解释 Skills 与 prompts / MCP / subagents 等概念的边界  
+      - 给出若干具体例子（例如前端设计、端到端工作流）
+
+  - type: url
+    title: "Introducing Agent Skills"
+    url: https://claude.com/blog/skills
+    mode: open
+
+  - type: url
+    title: "Equipping agents for the real world with Agent Skills"
+    url: https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills
+    mode: open
+
+  - type: url
+    title: "Skills explained（和 prompts / MCP / subagents 的边界）"
+    url: https://www.claude.com/blog/skills-explained
+    mode: open
+
+  - type: url
+    title: "How to create Skills for Claude（步骤与例子）"
+    url: https://www.claude.com/blog/how-to-create-skills-key-steps-limitations-and-examples
+    mode: open
+
+  - type: url
+    title: "Improving frontend design through Skills（例子：资产生成类 Skill）"
+    url: https://www.claude.com/blog/improving-frontend-design-through-skills
+    mode: open
 
   - type: md
     title: 示例 skills（“抄作业”的正确方式）
     body: |
-      学习 skills 的最快方法之一，是 clone 一份高质量示例，然后做“最小改动”：
+      学习 skills 的最快方法之一，是 clone 一份高质量示例，然后做“最小改动”，材料也给了一个很实用的顺序：
 
-      - 先只改 description（触发条件），跑触发测试  
-      - 再改 instructions（步骤与校验），跑功能测试  
-      - 最后加 references/scripts，把复杂度拆到按需加载层
+      1) 先只改 description（触发条件），跑触发测试  
+      2) 再改 instructions（步骤与校验），跑功能测试  
+      3) 最后加 references/scripts，把复杂度拆到按需加载层
 
-      材料中提到的公共示例仓库（名称以材料为准）：
-      - `anthropics/skills`（示例 skills，可作为模板）
+      这样做的好处是：你每一步都能观察到“行为变化来自哪里”，而不是一次改太多导致无法归因。
+
+  - type: url
+    title: "示例仓库：anthropics/skills"
+    url: https://github.com/anthropics/skills
+    mode: open
+
+  - type: url
+    title: "Issues：反馈与 Bug 报告入口"
+    url: https://github.com/anthropics/skills/issues
+    mode: open
 
   - type: md
     title: 工具与实用语句：skill-creator
@@ -64,7 +137,7 @@ items:
       description: ...
       license: MIT
       compatibility: Claude.ai / Claude Code / API; requires network; requires xyz
-      allowed-tools: \"Bash(python:*) WebFetch\"  # 如果你的运行环境支持权限限制
+      allowed-tools: "Bash(python:*) WebFetch"  # 如果你的运行环境支持权限限制
       metadata:
         author: Your Team
         version: 1.0.0
@@ -79,7 +152,7 @@ items:
       - 其他命名限制以官方规范为准（材料提到某些保留前缀）
 
   - type: md
-    title: 支持与反馈（发布后你需要的渠道）
+    title: 支持与反馈：如何提问，才能让别人更快帮到你
     body: |
       发布后常见的反馈入口包括：
 
@@ -91,11 +164,25 @@ items:
       - 复现步骤（触发语句、输入文件）
       - 错误信息/日志（如有）
 
+  - type: url
+    title: "Claude Developers Discord（支持入口）"
+    url: https://discord.com/invite/6PPFFzqPDZ
+    mode: open
+
   - type: md
-    layout: inline
+    title: 原文阅读
     body: |
-      来源材料：
+      - 日期：2026-01-26（PDF 元数据 CreationDate；在线页面可能有更新）
+      - 来源：Anthropic / Claude（Agent Skills 指南）
+      - 建议：把原文的 Resources & references 当作“官方链接索引”，但学习顺序仍建议从 Best Practices 入手：先建立三层结构与触发/执行分流的直觉，再回到 API/MCP 文档查细节。
 
-      - `original/4-26-02-27/The-Complete-Guide-to-Building-Skill-for-Claude.pdf`
-      - 重点页：Resources and references（第 29 页）、Frontmatter reference（第 31 页）、Example references（第 32 页）
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      如果你发现自己在“读文档读到迷路”，可以用一个返回点把路径拉直：
 
+      - 你在解决“触发不稳定/写作结构”问题：回到 Best Practices 与示例 skills。  
+      - 你在解决“接口字段/权限/沙箱”问题：回到 API Reference。  
+      - 你在解决“多系统编排/工具语义”问题：回到 MCP 文档与 pattern 章节。
+
+      把资源当成“按需打开的 references”，本身也是一种渐进式加载的实践。

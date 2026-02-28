@@ -1,21 +1,42 @@
 id: agent-skills-301-frontmatter-and-instructions
-title: "写作与结构：frontmatter 决定触发，SKILL.md 决定执行"
+title: "第 3 课：触发与执行——frontmatter 决定何时加载，SKILL.md 决定如何跑通"
 summary: |
-  Skill 的成败很大程度由两部分决定：YAML frontmatter（决定“何时加载”）与 SKILL.md 正文（决定“怎么做对”）。本课给你可直接复用的模板、规则与写作 checklist。
+  Skill 的可靠性很大程度由两部分决定：YAML frontmatter（决定“何时加载”）与 SKILL.md 正文（决定“怎么做对、怎么自检、怎么失败可解释”）。本课把材料中的强约束与写作模板拆成可复用的工程写法。
 items:
   - type: md
-    title: 学习目标
+    title: 导入：为什么“触发”与“执行”要分开设计
     body: |
-      学完本课，你应该能够：
+      Skill 失败时，表面症状常常很像（“不好用”），但根因往往分成两类：
 
-      - 写出一个合法的 skill 文件夹结构，并避免常见命名错误。
-      - 写出高触发质量的 frontmatter：name/description（含正向触发 + 可选负触发）。
-      - 用一套稳定的 SKILL.md 正文结构表达：步骤、示例、错误处理、引用 references。
+      - **触发问题**：它该出现的时候没出现（under-trigger），或不该出现的时候乱出现（over-trigger）。  
+      - **执行问题**：它出现了，但步骤跑不稳、工具调用失败、输出结构漂移。
+
+      材料把这两类问题对应到两段不同的内容：
+      - frontmatter 负责“何时加载”（触发判别）
+      - SKILL.md 正文负责“如何做”（步骤、示例、错误处理、引用资料）
+
+      这节课会把两件事拆开讲清楚：**怎样写 frontmatter 才触发得对**，以及 **怎样写正文才执行得稳**。
 
   - type: md
-    title: 技术要求与关键规则（先避免“上传失败”）
+    title: 概念对齐：frontmatter 是“触发元数据”，正文是“可执行手册”
     body: |
-      推荐文件结构：
+      在这个实现里，一个 skill 文件夹里最重要的文件是 `SKILL.md`。它由两部分构成：
+
+      1) **YAML frontmatter**：一小段元数据，夹在 `---` 与 `---` 之间。  
+         系统会把它放进更靠前、更稳定的系统提示词里，用来判断“什么时候该加载这个 skill”。  
+
+      2) **Markdown 正文**：当 skill 被加载时才会进入上下文。  
+         正文不是“介绍”，而应该更像一份可执行手册：步骤、例子、失败时怎么办、需要时去看哪些参考资料。
+
+      这个分工的工程意义是：  
+      **触发层要短、明确、可测试；执行层要具体、可复现、可调试。**
+
+  - type: md
+    title: 技术要求（先把“上传失败”这种低级问题消掉）
+    body: |
+      材料给了几条非常硬的规则，目的不是“格式洁癖”，而是避免系统根本找不到你的 skill。
+
+      推荐文件结构（最常见的形态）：
 
       ```text
       your-skill-name/
@@ -35,13 +56,13 @@ items:
         - ❌ `Notion Project Setup` / `notion_project_setup`
       - **skill 文件夹内部不要放 README.md**  
         - 给“人类读者”的 README 放在 GitHub repo 根目录（不是 skill 文件夹里）
-      - **frontmatter 里不要出现 XML 尖括号 `< >`**（安全限制）
+      - **frontmatter 里不要出现 XML 尖括号 `< >`**（安全限制；原因见后文）
 
   - type: md
-    title: YAML frontmatter（最重要的 30 行）
+    title: YAML frontmatter（触发层）：写对 “WHAT + WHEN”
     body: |
-      frontmatter 的作用：让 Claude 在系统层面知道 **“什么时候该用这个 skill”**。  
-      结论：触发不稳定，优先改 description，而不是加更多正文。
+      材料对 frontmatter 的定位非常明确：**它是系统判断是否加载 skill 的依据**。  
+      因此当你遇到“触发不稳定”时，优先修的是 description，而不是往正文里塞更多段落。
 
       最小可用模板（只需要两个字段）：
 
@@ -52,7 +73,7 @@ items:
       ---
       ```
 
-      字段要求（强约束）：
+      字段要求（材料给出的强约束）：
 
       `name`（必填）
       - kebab-case（小写 + 中划线）
@@ -74,14 +95,23 @@ items:
       - `metadata`：自定义键值（建议：author/version/mcp-server/category/tags）
       - `allowed-tools`：可选的工具权限限制（在支持的环境中用于安全边界）
 
-      安全限制（材料强调）：
-      - frontmatter 中禁用 `< >`，因为它会进入系统提示词，可能带来注入风险
-      - skill 命名避免使用保留前缀（材料提到某些词被保留；这里建议以官方规范为准）
+  - type: md
+    title: 为什么 frontmatter 有安全限制：因为它会进入 system prompt
+    body: |
+      材料明确指出：frontmatter 会出现在系统提示词里。
+      这意味着它处在一个“高权限、难被用户覆盖”的位置——也正因为如此，需要更严格的安全约束。
+
+      因此材料列出了一些限制，例如：
+      - 禁止 XML 尖括号 `< >`（减少被当作标签/指令载体的注入面）  
+      - 对某些命名做保留（材料举例：包含 “claude” 或 “anthropic” 的命名可能被保留）
+
+      实操上更稳妥的做法是：把这些约束当成“平台规范”，并以官方文档为准；你在写 skill 时只需要记住一个工程原则：
+      **触发元数据处在高权限层，所以要尽量短、干净、可验证。**
 
   - type: md
-    title: description 怎么写才“触发得对”
+    title: description 怎么写才“触发得对”：把触发写成可测试的短语集合
     body: |
-      一个实用写法：
+      材料给了一个很实用的结构化写法：
 
       ```text
       [What it does] + [When to use it] + [Key capabilities]
@@ -96,7 +126,7 @@ items:
       - “Creates sophisticated multi-page documentation systems.”（缺触发条件）
       - “Implements the Project entity model ...”（过于技术化，用户不会这样说）
 
-      负触发（避免“触发过度”）也很重要：
+      负触发（避免“触发过度”）也很重要：当你的 skill 覆盖的是一个窄场景，最好明确“哪些相邻场景不属于我”。
 
       ```yaml
       description: Advanced data analysis for CSV files. Use for statistical modeling,
@@ -104,16 +134,16 @@ items:
       ```
 
   - type: md
-    title: SKILL.md 正文怎么写才“执行得稳”
+    title: SKILL.md 正文（执行层）：写成“能照着做”的操作手册
     body: |
-      建议把正文写成“能照着做的操作手册”，并显式包含：
+      材料建议把正文写成“能照着做的操作手册”，并显式包含：
 
       - Instructions（步骤）
       - Examples（常见场景与期望输出）
       - Troubleshooting（错误 → 原因 → 解决）
       - References（需要时再加载的资料：`references/`）
 
-      可复用模板（你可以直接复制后改括号内容）：
+      一个可复用模板（来自材料的推荐结构，你可以直接替换方括号内容）：
 
       ```md
       ---
@@ -144,20 +174,63 @@ items:
       ```
 
   - type: md
-    title: 写作最佳实践（直接影响可靠性）
+    title: 写作最佳实践：把“模糊建议”改成“可检查条件”
     body: |
-      - **具体可执行**：用命令、参数、期望输出描述步骤（不要只写“请先验证数据”）。
-      - **把关键约束放在最上面**：用 “CRITICAL/IMPORTANT” 抬高显著性。
-      - **错误处理要可行动**：失败了是重试？换参数？还是需要用户补充信息？
-      - **引用资源要明确**：例如“在写查询前先看 `references/api-patterns.md` 的分页/限速规则”。
-      - **善用渐进式加载**：SKILL.md 不要无限膨胀；把长文档放到 `references/`。
-      - **关键校验用脚本更可靠**：对“必须满足”的校验（schema/格式/依赖）优先用 `scripts/validate.py` 这种确定性工具。
+      材料列了一组“直接影响可靠性”的写作习惯。把它们翻译成更可操作的版本，可以是：
+
+      **1) 用可执行细节替代口号**  
+      与其写“先验证数据”，不如写：运行什么命令、检查什么字段、失败时常见原因是什么。
+
+      **2) 把关键约束提前**  
+      例如用 `CRITICAL:` 把最重要的前置条件写在正文顶部。这样做不是为了“吓人”，而是降低漏读的概率。
+
+      **3) 错误处理要给下一步**  
+      “失败了怎么办”最好能落到行动：重试、换参数、回滚、还是向用户询问缺失信息。
+
+      **4) 引用资料要可定位**  
+      例如明确：写查询前先看 `references/api-patterns.md` 的分页/限速规则（而不是泛泛地说“参考文档”）。
+
+      **5) 把长细节移到按需层**  
+      正文只保留主干流程；长文档放 `references/`，模板放 `assets/`。
+
+      **6) 关键校验优先脚本化**  
+      对“必须满足”的检查（schema/格式/依赖），脚本通常比语言更确定。
 
   - type: md
-    layout: inline
+    title: 小练习：写一段能被测试的 description + 一段能跑通的正文骨架
     body: |
-      来源材料：
+      继续使用你在上一课写的 Design Card，做两个小产物：
 
-      - `original/4-26-02-27/The-Complete-Guide-to-Building-Skill-for-Claude.pdf`
-      - 重点页：Technical requirements & frontmatter（第 10–13 页）
+      1) 写一个 description（两段即可）  
+         - 第 1 句：WHAT（做什么）  
+         - 第 2 句：WHEN（什么时候用）+ 3–5 个触发短语  
+         - 可选：加 1 句负触发（Do NOT use...）
 
+      2) 写一个正文骨架（不要追求完整）  
+         - Instructions：3–6 个步骤标题，每步写“输入→行动→输出/检查点”  
+         - Examples：至少 1 个例子（User says / Actions / Result）  
+         - Troubleshooting：写 2 条你最担心的失败（Error / Cause / Solution）
+
+      写完后做一次自检：如果一个新用户只读这份骨架，他能否大致理解“这套流程怎么跑、失败时怎么办”？
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-01-26（PDF 元数据 CreationDate；在线页面可能有更新）
+      - 来源：Anthropic / Claude（Agent Skills 指南）
+      - 建议：逐条核对原文里 frontmatter 的强约束（长度、禁用字符、命名规范），并用原文提供的“好/坏 description”对照你自己的写法：你的触发短语是否真的会被用户说出来？
+
+  - type: url
+    title: "参考：Agent Skills Quickstart（创建与结构示例）"
+    url: https://platform.claude.com/docs/en/agents-and-tools/agent-skills/quickstart
+    mode: open
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      当你在调试 skill 时，可以用一个简单的分流判断该改哪里：
+
+      - **没触发 / 乱触发**：优先改 frontmatter 的 description（触发短语、范围、负触发）。  
+      - **触发了但跑不稳**：优先改正文（把步骤写具体、加验证门、补错误处理；必要时脚本化关键校验）。
+
+      这也是为什么“触发层”和“执行层”最好分开设计：它让迭代更像工程调参，而不是把所有问题都当成“模型不听话”。
