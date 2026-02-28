@@ -1,187 +1,131 @@
 id: learn-claude-code-s02-tools
-title: "s02 Tools：工具分发（dispatch map）"
+title: "第 2 课：工具与分发——用 Dispatch Map 扩展能力，而不重写循环"
 summary: |
-  从单一 bash 工具升级到多工具体系：通过 name→handler 的 dispatch map 扩展能力，而无需重写 agent loop。
+  把 s01 的“只有 bash”升级为“多工具体系”：工具只是一组 schema + 一组处理函数（handlers）。
+  你将学会用 dispatch map 进行工具路由，并理解为什么专用工具能同时提升稳定性与安全边界。
 items:
   - type: md
-    title: 学习目标
+    title: 导入：本课要回答的问题
     body: |
-      - 理解“加工具就是加 handler”：循环不变，变化的是 tools 列表与分发逻辑。
-      - 能读懂 tool 的 input_schema/输出形状，以及为何结构化输出更可调试。
-      - 能在本地运行 `agents/s02_tool_use.py`，并自行添加一个小工具验证 dispatch。
+      s01 里我们用 bash 证明了“闭环是可行的”。但当你真的让 agent 写代码时，很快会遇到两个现实问题：
+      1) 让模型用 shell 去读/写/改文件，既脆弱又昂贵；  
+      2) “能执行任何命令”的工具边界太大，很难把风险收住。
 
-      建议：阅读正文时，把注意力放在“这一课只新增了哪一个机制”。
+      本课围绕下面几个问题展开：
 
-  - type: md
-    title: 讲义（问题 → 方案 → 原理 → 代码）
-    body: |
-      > 一个分发映射表 (dispatch map) 将工具调用路由到处理函数 -- 循环本身完全不需要改动。
-      
-      ## 问题
-      
-      只有 `bash` 时, 智能体所有操作都通过 shell: 读文件、写文件、编辑文件。这能用但很脆弱。`cat` 的输出会被不可预测地截断。`sed` 替换遇到特殊字符就会失败。模型浪费大量 token 构造 shell 管道, 而一个直接的函数调用会简单得多。
-      
-      更重要的是, bash 存在安全风险。每次 bash 调用都能做 shell 能做的一切。有了专用工具如 `read_file` 和 `write_file`, 你可以在工具层面强制路径沙箱化, 阻止危险模式, 而不是寄希望于模型自觉回避。
-      
-      关键洞察: 添加工具不需要修改循环。s01 的循环保持不变。你只需在工具数组中添加条目, 编写处理函数, 然后通过 dispatch map 把它们关联起来。
-      
-      ## 解决方案
-      
-      ```
-      +----------+      +-------+      +------------------+
-      |   User   | ---> |  LLM  | ---> | Tool Dispatch    |
-      |  prompt  |      |       |      | {                |
-      +----------+      +---+---+      |   bash: run_bash |
-                            ^          |   read: run_read |
-                            |          |   write: run_wr  |
-                            +----------+   edit: run_edit |
-                            tool_result| }                |
-                                       +------------------+
-      
-      The dispatch map is a dict: {tool_name: handler_function}
-      One lookup replaces any if/elif chain.
-      ```
-      
-      ## 工作原理
-      
-      1. 为每个工具定义处理函数。每个函数接受与工具 input_schema 对应的关键字参数, 返回字符串结果。
-      
-      ```python
-      def run_read(path: str, limit: int = None) -> str:
-          text = safe_path(path).read_text()
-          lines = text.splitlines()
-          if limit and limit < len(lines):
-              lines = lines[:limit]
-          return "\n".join(lines)[:50000]
-      ```
-      
-      2. 创建 dispatch map, 将工具名映射到处理函数。
-      
-      ```python
-      TOOL_HANDLERS = {
-          "bash":       lambda **kw: run_bash(kw["command"]),
-          "read_file":  lambda **kw: run_read(kw["path"], kw.get("limit")),
-          "write_file": lambda **kw: run_write(kw["path"], kw["content"]),
-          "edit_file":  lambda **kw: run_edit(kw["path"], kw["old_text"],
-                                              kw["new_text"]),
-      }
-      ```
-      
-      3. 在 agent loop 中, 按名称查找处理函数, 而不是硬编码。
-      
-      ```python
-      for block in response.content:
-          if block.type == "tool_use":
-              handler = TOOL_HANDLERS.get(block.name)
-              output = handler(**block.input)
-              results.append({
-                  "type": "tool_result",
-                  "tool_use_id": block.id,
-                  "content": output,
-              })
-      ```
-      
-      4. 路径沙箱化防止模型逃逸出工作区。
-      
-      ```python
-      def safe_path(p: str) -> Path:
-          path = (WORKDIR / p).resolve()
-          if not path.is_relative_to(WORKDIR):
-              raise ValueError(f"Path escapes workspace: {p}")
-          return path
-      ```
-      
-      ## 核心代码
-      
-      dispatch 模式 (来自 `agents/s02_tool_use.py`, 第 93-129 行):
-      
-      ```python
-      TOOL_HANDLERS = {
-          "bash":       lambda **kw: run_bash(kw["command"]),
-          "read_file":  lambda **kw: run_read(kw["path"], kw.get("limit")),
-          "write_file": lambda **kw: run_write(kw["path"], kw["content"]),
-          "edit_file":  lambda **kw: run_edit(kw["path"], kw["old_text"],
-                                              kw["new_text"]),
-      }
-      
-      def agent_loop(messages: list):
-          while True:
-              response = client.messages.create(
-                  model=MODEL, system=SYSTEM, messages=messages,
-                  tools=TOOLS, max_tokens=8000,
-              )
-              messages.append({"role": "assistant", "content": response.content})
-              if response.stop_reason != "tool_use":
-                  return
-              results = []
-              for block in response.content:
-                  if block.type == "tool_use":
-                      handler = TOOL_HANDLERS.get(block.name)
-                      output = handler(**block.input) if handler \
-                          else f"Unknown tool: {block.name}"
-                      results.append({
-                          "type": "tool_result",
-                          "tool_use_id": block.id,
-                          "content": output,
-                      })
-              messages.append({"role": "user", "content": results})
-      ```
-      
-      ## 相对 s01 的变更
-      
-      | 组件           | 之前 (s01)         | 之后 (s02)                     |
-      |----------------|--------------------|----------------------------|
-      | Tools          | 1 (仅 bash)        | 4 (bash, read, write, edit)|
-      | Dispatch       | 硬编码 bash 调用   | `TOOL_HANDLERS` 字典       |
-      | 路径安全       | 无                 | `safe_path()` 沙箱         |
-      | Agent loop     | 不变               | 不变                       |
-      
-      ## 设计原理
-      
-      dispatch map 模式可以线性扩展 -- 添加工具只需添加一个处理函数和一个 schema 条目。循环永远不需要改动。这种关注点分离 (循环 vs 处理函数) 是智能体框架能支持数十个工具而不增加控制流复杂度的原因。该模式还支持对每个处理函数进行独立测试, 因为处理函数是与循环无耦合的纯函数。任何超出 dispatch map 的智能体都是设计问题, 而非扩展问题。
-      
-      ## 试一试
-      
-      ```sh
-      cd learn-claude-code
-      python agents/s02_tool_use.py
-      ```
-      
-      可以尝试的提示:
-      
-      1. `Read the file requirements.txt`
-      2. `Create a file called greet.py with a greet(name) function`
-      3. `Edit greet.py to add a docstring to the function`
-      4. `Read greet.py to verify the edit worked`
-      5. `Run the greet function with bash: python -c "from greet import greet; greet('World')"`
+      1) 为什么“只有 bash”会让系统在可靠性与成本上都变差？  
+      2) 添加新工具时，哪些代码属于“循环控制流”，哪些属于“工具能力”？  
+      3) 什么是 dispatch map？它解决的不是性能问题，而是什么工程问题？  
+      4) 路径沙箱（path sandbox）在工具层怎么做？它能防住哪些逃逸，防不住哪些？
 
   - type: md
-    title: 动手练习（本地运行）
+    title: 概念对齐：工具 schema、handler 与 dispatch map
     body: |
-      如果你还没有配置运行环境，请先完成《导论》里的准备步骤。
-      
-      本课建议最小实践：
-      
-      ```sh
-      python agents/s02_tool_use.py
-      ```
-      
-      你可以把本课当成一个小实验：
-      
-      1) 先按文档里的 `试一试` 跑通一次（确保能复现）。
-      2) 再做一次**微改动**（例如：添加一个新的提示、改一个阈值、加一个危险命令拦截），观察行为差异。
-      
-      检查点（你应该能回答）：
-      
-      - 这节课新增的“机制”是什么？它解决了什么具体失败模式？
-      - 这套机制的状态/真实来源是什么（内存、messages[]、文件系统、线程）？
+      **工具 schema（tools[]）**  
+      工具 schema 是你提供给模型的一份“能力说明书”。最常见的字段是：
+      - `name`：工具名（模型用它来引用工具）  
+      - `description`：模型该在什么场景使用它  
+      - `input_schema`：参数结构（哪些字段必填、类型是什么）
+
+      schema 的作用不只是“让模型知道工具存在”，更重要的是让工具调用变得**结构化、可验证、可调试**。
+
+      **handler（处理函数）**  
+      handler 是你在代码里真正执行动作的地方：读文件、写文件、编辑文件、运行命令……它接收工具输入，返回字符串或结构化结果（在这个项目里先用字符串简化）。
+
+      **dispatch map（分发映射表）**  
+      dispatch map 是一个字典：`{tool_name -> handler}`。  
+      它的价值在于把“工具扩展”从“控制流改造”里分离出去：你增加工具时主要改两处——新增 handler、把它挂到 map 上；而 agent loop 本身可以保持稳定。
+
+      这是一种很典型的可维护性设计：让“变化”集中在一个局部，而不是让 `if/elif` 逻辑在循环里越长越难管。
 
   - type: md
-    layout: inline
+    title: 为什么专用工具通常比 bash 更可靠？
     body: |
-      本课在上游仓库中的位置：
-      
-      - 文档：`docs/zh/s02-tool-use.md`
-      - 代码：`agents/s02_tool_use.py`
-      
-      上游仓库：`https://github.com/shareAI-lab/learn-claude-code`
+      bash 是一种“万能但粗糙”的执行面：它能做很多事，但它把复杂性留给了模型。
+
+      在代码/文档任务里，bash-only 往往会触发三类不稳定：
+
+      **1) 输出与错误不稳定**  
+      命令输出可能很长、可能分页、可能混在 stderr 里；模型需要猜“哪些行是关键信息”，而且还要处理被截断的情况。
+
+      **2) 字符串拼接极其脆弱**  
+      让模型拼 `sed`/引号/转义在遇到特殊字符时很容易失败。失败以后又会产生更长的“修复尝试”，进一步消耗上下文预算。
+
+      **3) 安全边界太宽**  
+      bash 工具天然等价于“允许模型执行一切你能执行的命令”。这会让风险治理变成一句提示词或一个黑名单，而不是一条可审计的权限策略。
+
+      反过来，像 `read_file / write_file / edit_file` 这样的专用工具，把行为收敛到几个明确操作：
+      读什么、写什么、替换什么——更容易验证，也更容易限制。
+
+  - type: md
+    title: 机制拆解：loop 不变，变的是“工具路由”
+    body: |
+      这节课最重要的结构性结论是：**循环控制流不需要因为工具变多而变复杂**。
+
+      你可以把 s02 的改动理解成三步：
+
+      1) 为每个工具写一个 handler（例如 `run_read()` / `run_write()` / `run_edit()`）。  
+      2) 建立 `TOOL_HANDLERS`：把工具名映射到 handler。  
+      3) 在循环里遇到 `tool_use` 时，用 `block.name` 去查 handler 并调用；把结果仍然以 tool_result 回填。
+
+      这意味着：工具扩展主要是一种“数据扩展”（tools 数组 + handlers 字典），而不是“流程扩展”（在 loop 里再加很多分支）。
+
+  - type: md
+    title: 工具层的最小安全边界：safe_path() 在防什么？
+    body: |
+      s02 的一个关键补丁是 `safe_path()`：它把“文件工具能访问的路径”限制在工作目录（workspace）内。
+
+      你可以把它理解成两步检查：
+      1) 把用户/模型提供的相对路径拼到 WORKDIR 上，并 `resolve()` 成绝对路径；  
+      2) 检查这个路径是否仍然属于 WORKDIR（否则说明它通过 `../` 等方式试图逃逸）。
+
+      这类检查能防住的典型场景是：模型试图读 `../../.ssh/id_rsa` 之类的敏感文件。
+
+      但它防不住的事情也很重要：  
+      - 如果 workspace 里本来就有敏感文件，它仍然可以读到；  
+      - 如果你提供的工具允许写入，它仍然可能覆写关键文件（只是在 workspace 内）；  
+      - 如果你把执行环境直接连到真实机器，bash 仍然是高风险工具（后续课程/其他 track 会讨论更强的沙箱化）。
+
+      因此，safe_path 更像是“工具层最小必要条件”，而不是完整的安全方案。
+
+  - type: md
+    title: 动手练习：新增一个“低风险工具”体验扩展方式
+    body: |
+      目标：在不改 agent loop 主体结构的前提下，新增一个工具并让模型学会用它。
+
+      一个相对低风险、也容易验证的工具是 `list_dir`：
+      - 输入：`path`（可选，默认 `.`）  
+      - 输出：目录下文件名列表（限制条数，避免爆上下文）
+
+      练习步骤（建议）：
+      1) 先跑通 `python agents/s02_tool_use.py`。  
+      2) 添加 handler（例如 `run_list_dir()`），并把它挂到 `TOOL_HANDLERS`。  
+      3) 在 `TOOLS` 里加上 schema（name/description/input_schema）。  
+      4) 用提示测试：“List files in this directory” 并观察模型是否会优先选择 `list_dir` 而不是 bash。
+
+      写下你的观察：当 description 更明确、schema 更结构化时，模型的工具选择会发生什么变化？
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-02-26（仓库快照）
+      - 来源：shareAI-lab/learn-claude-code（MIT，commit: ff8acd8）
+      - 建议：对照阅读“dispatch map 的动机（可靠性/安全）”与代码里的 `TOOL_HANDLERS`、`safe_path()`；把它类比成你熟悉框架里的 tool router。
+
+  - type: url
+    title: "上游文档：s02 Tool Use"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/docs/zh/s02-tool-use.md
+    mode: open
+
+  - type: url
+    title: "上游代码：agents/s02_tool_use.py"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/agents/s02_tool_use.py
+    mode: open
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) bash-only 的主要问题不是“不能做”，而是把复杂性塞回模型：输出不稳定、字符串拼接脆弱、工具边界过宽。  
+      2) 工具扩展的理想形态是：loop 稳定，变化集中在 handlers 与 tools schema；这能让系统更容易测试与迭代。  
+      3) dispatch map 是一种“把变化点集中起来”的工程组织方式：它让新增工具变成局部改动，而不是在控制流里不断加分支。  
+      4) safe_path 解决的是“目录逃逸”这一类最基础的问题；更完整的权限与隔离还需要更强的沙箱与审计机制配合。

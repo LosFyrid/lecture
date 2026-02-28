@@ -1,236 +1,144 @@
 id: learn-claude-code-s10-team-protocols
-title: "s10 Team Protocols：同一个 request_id，两种协议"
+title: "第 10 课：Team Protocols——用 request_id 把异步协作变成可追踪的 FSM"
 summary: |
-  引入团队协议：用同一个 request_id 把跨队友的异步流程串起来；用 FSM 同时驱动“关机”与“计划审批”。
+  有了队友与消息通道之后，协作仍然可能“无序”：怎么优雅关机？怎么在高风险改动前做计划门控？
+  本课用同一个 request_id 关联模式实现两种协议（关机、计划审批）：用一个小 FSM（pending→approved/rejected）追踪请求状态。
 items:
   - type: md
-    title: 学习目标
+    title: 导入：本课要回答的问题
     body: |
-      - 理解为什么需要 protocol：多智能体不能只靠自然语言约定，必须有可验证的状态机。
-      - 掌握 request_id 的作用：跨邮箱关联同一事务的多个消息。
-      - 能运行 `agents/s10_team_protocols.py` 并观察计划审批/关机流程。
+      s09 让队友能工作、能发消息，但它仍然缺少“结构化协调”：
+      - 你可以告诉队友做什么，但很难在关键节点要求它“先停一下、等我确认”；  
+      - 你也很难让队友“干净地停止”，而不是粗暴地杀掉线程。
 
-      建议：阅读正文时，把注意力放在“这一课只新增了哪一个机制”。
+      本课要回答：
+
+      1) 为什么“直接停掉线程”不是一个好关机方式？优雅关机需要什么交互？  
+      2) 为什么计划审批（plan approval）是团队协作里常见的门控机制？  
+      3) request_id 关联模式到底解决了什么问题？它如何对抗乱序与延迟？  
+      4) 如何用一个有限状态机（FSM）把“请求→响应→结论”变成可追踪状态？
 
   - type: md
-    title: 讲义（问题 → 方案 → 原理 → 代码）
+    title: 概念对齐：异步消息里最难的是“关联”
     body: |
-      > 同一个 request_id 握手模式驱动了关机和计划审批两种协议 -- 一个 FSM, 两种应用。
-      
-      ## 问题
-      
-      在 s09 中, 队友可以工作和通信, 但没有结构化的协调。出现了两个问题:
-      
-      **关机**: 如何干净地停止一个队友? 直接杀线程会留下写了一半的文件和错误状态的 config.json。优雅关机需要握手: 领导发起请求, 队友决定是批准 (完成并退出) 还是拒绝 (继续工作)。
-      
-      **计划审批**: 如何控制执行门槛? 当领导说 "重构认证模块", 队友会立即开始。对于高风险变更, 领导应该在执行开始前审查计划。初级提出方案, 高级批准。
-      
-      两个问题共享相同的结构: 一方发送带唯一 ID 的请求, 另一方引用该 ID 作出响应。一个有限状态机 (FSM) 跟踪每个请求经历 pending -> approved | rejected 的状态变迁。
-      
-      ## 解决方案
-      
-      ```
-      Shutdown Protocol            Plan Approval Protocol
-      ==================           ======================
-      
-      Lead             Teammate    Teammate           Lead
-        |                 |           |                 |
-        |--shutdown_req-->|           |--plan_req------>|
-        | {req_id:"abc"}  |           | {req_id:"xyz"}  |
-        |                 |           |                 |
-        |<--shutdown_resp-|           |<--plan_resp-----|
-        | {req_id:"abc",  |           | {req_id:"xyz",  |
-        |  approve:true}  |           |  approve:true}  |
-        |                 |           |                 |
-        v                 v           v                 v
-      tracker["abc"]     exits     proceeds          tracker["xyz"]
-       = approved                                     = approved
-      
-      Shared FSM (identical for both protocols):
-        [pending] --approve--> [approved]
-        [pending] --reject---> [rejected]
-      
-      Trackers:
-        shutdown_requests = {req_id: {target, status}}
-        plan_requests     = {req_id: {from, plan, status}}
-      ```
-      
-      ## 工作原理
-      
-      1. 领导通过生成 request_id 并通过收件箱发送 shutdown_request 来发起关机。
-      
-      ```python
-      shutdown_requests = {}
-      
-      def handle_shutdown_request(teammate: str) -> str:
-          req_id = str(uuid.uuid4())[:8]
-          shutdown_requests[req_id] = {
-              "target": teammate, "status": "pending",
-          }
-          BUS.send("lead", teammate, "Please shut down gracefully.",
-                   "shutdown_request", {"request_id": req_id})
-          return f"Shutdown request {req_id} sent (status: pending)"
-      ```
-      
-      2. 队友在收件箱中收到请求, 调用 `shutdown_response` 工具来批准或拒绝。
-      
-      ```python
-      if tool_name == "shutdown_response":
-          req_id = args["request_id"]
-          approve = args["approve"]
-          if req_id in shutdown_requests:
-              shutdown_requests[req_id]["status"] = \
-                  "approved" if approve else "rejected"
-          BUS.send(sender, "lead", args.get("reason", ""),
-                   "shutdown_response",
-                   {"request_id": req_id, "approve": approve})
-          return f"Shutdown {'approved' if approve else 'rejected'}"
-      ```
-      
-      3. 队友的循环检查是否批准了关机并退出。
-      
-      ```python
-      if (block.name == "shutdown_response"
-              and block.input.get("approve")):
-          should_exit = True
-      # ...
-      member["status"] = "shutdown" if should_exit else "idle"
-      ```
-      
-      4. 计划审批遵循完全相同的模式。队友提交计划时生成一个 request_id。
-      
-      ```python
-      plan_requests = {}
-      
-      if tool_name == "plan_approval":
-          plan_text = args.get("plan", "")
-          req_id = str(uuid.uuid4())[:8]
-          plan_requests[req_id] = {
-              "from": sender, "plan": plan_text,
-              "status": "pending",
-          }
-          BUS.send(sender, "lead", plan_text,
-                   "plan_approval_request",
-                   {"request_id": req_id, "plan": plan_text})
-          return f"Plan submitted (request_id={req_id})"
-      ```
-      
-      5. 领导审查后使用同一个 request_id 作出响应。
-      
-      ```python
-      def handle_plan_review(request_id, approve, feedback=""):
-          req = plan_requests.get(request_id)
-          if not req:
-              return f"Error: Unknown request_id '{request_id}'"
-          req["status"] = "approved" if approve else "rejected"
-          BUS.send("lead", req["from"], feedback,
-                   "plan_approval_response",
-                   {"request_id": request_id,
-                    "approve": approve,
-                    "feedback": feedback})
-          return f"Plan {req['status']} for '{req['from']}'"
-      ```
-      
-      6. 两个协议使用同一个 `plan_approval` 工具名, 有两种模式: 队友提交 (无 request_id), 领导审查 (带 request_id)。
-      
-      ```python
-      # Lead tool dispatch:
-      "plan_approval": lambda **kw: handle_plan_review(
-          kw["request_id"], kw["approve"],
-          kw.get("feedback", "")),
-      # Teammate: submit mode (generate request_id)
-      ```
-      
-      ## 核心代码
-      
-      双协议处理器 (来自 `agents/s10_team_protocols.py`):
-      
-      ```python
-      shutdown_requests = {}
-      plan_requests = {}
-      
-      # -- Shutdown --
-      def handle_shutdown_request(teammate):
-          req_id = str(uuid.uuid4())[:8]
-          shutdown_requests[req_id] = {
-              "target": teammate, "status": "pending"
-          }
-          BUS.send("lead", teammate,
-                   "Please shut down gracefully.",
-                   "shutdown_request",
-                   {"request_id": req_id})
-      
-      # -- Plan Approval --
-      def handle_plan_review(request_id, approve, feedback=""):
-          req = plan_requests[request_id]
-          req["status"] = "approved" if approve else "rejected"
-          BUS.send("lead", req["from"], feedback,
-                   "plan_approval_response",
-                   {"request_id": request_id,
-                    "approve": approve})
-      
-      # Both use the same FSM:
-      # pending -> approved | rejected
-      # Both correlate by request_id across async inboxes
-      ```
-      
-      ## 相对 s09 的变更
-      
-      | 组件           | 之前 (s09)       | 之后 (s10)                           |
-      |----------------|------------------|--------------------------------------|
-      | Tools          | 9                | 12 (+shutdown_req/resp +plan)        |
-      | 关机           | 仅自然退出       | 请求-响应握手                        |
-      | 计划门控       | 无               | 提交/审查与审批                      |
-      | 请求追踪       | 无               | 两个 tracker 字典                    |
-      | 关联           | 无               | 每个请求一个 request_id              |
-      | FSM            | 无               | pending -> approved/rejected         |
-      
-      ## 设计原理
-      
-      request_id 关联模式将任何异步交互转化为可追踪的有限状态机。同一个三状态机 (pending -> approved/rejected) 适用于关机、计划审批或任何未来的协议。这就是为什么一个模式能处理多种协议 -- FSM 不关心它在审批什么。request_id 在异步收件箱中提供关联, 消息可能乱序到达, 使该模式对智能体间的时序差异具有鲁棒性。
-      
-      ## 试一试
-      
-      ```sh
-      cd learn-claude-code
+      在文件邮箱/队列式通信里，消息常见特征是：
+      - 到达有延迟（接收方轮询才看到）  
+      - 可能乱序（多个请求/响应交织）  
+      - 发送方与接收方各自维护自己的局部上下文
+
+      这会带来一个工程难题：当你收到一条响应时，你如何知道它对应“哪一次请求”？
+
+      request_id 的作用就是提供一个稳定的关联键（correlation id）：
+      - 发起方生成 request_id，放进请求消息  
+      - 响应方在回复时原样带回 request_id  
+      - 系统可以用 request_id 把一条异步消息链串成一件“可追踪的事务”
+
+  - type: md
+    title: 一个小 FSM，两种协议：pending → approved / rejected
+    body: |
+      本课把两类协作问题抽象成同一个状态机：
+
+      - 初始：`pending`（请求已发出，等待回复）  
+      - 终态：`approved` 或 `rejected`
+
+      状态机本身不关心“审批的是什么”（关机、计划、别的未来协议）。
+      它只关心：有没有 request_id、当前处于哪个状态、以及状态如何被某条消息推进。
+
+      这就是“一个模式能复用到多个协议”的原因：复用的是关联与追踪，而不是业务语义。
+
+  - type: md
+    title: 协议一：优雅关机（Shutdown Handshake）
+    body: |
+      **问题**：如果你直接杀掉队友线程，它可能正在写文件或更新 config，留下半成品与错误状态。
+
+      **协议结构**：
+      1) lead 生成 request_id，通过 inbox 发送 `shutdown_request` 给指定队友。  
+      2) 队友收到后，调用 `shutdown_response` 工具，选择 approve/reject，并把同一个 request_id 回传。  
+      3) lead 用 tracker 记录该 request_id 的状态变化；队友如果批准，会在 loop 中设置 should_exit 并把状态写为 shutdown。
+
+      **关键点**：关机不是“命令”，而是一次“协商”。队友可以拒绝（例如它正在关键步骤）。
+
+  - type: md
+    title: 协议二：计划审批（Plan Approval Gate）
+    body: |
+      **问题**：如果队友一收到“重构认证模块”就直接开干，高风险改动可能在你反应过来之前就造成大范围变更。
+
+      **协议结构**：
+      1) 队友用 `plan_approval` 提交计划文本：系统生成 request_id，并把计划通过 inbox 发给 lead。  
+      2) lead 审阅后，用同一个 request_id 做出 approve/reject，并把反馈回传给队友。  
+      3) tracker 把该 request_id 的状态从 pending 推进到 approved/rejected。
+
+      **一个实现细节**：在教学代码里，计划提交与审批复用了同一个工具名 `plan_approval`，但输入形状不同：  
+      - 队友侧：提供 `plan` 文本，生成 request_id  
+      - lead 侧：提供 `request_id + approve (+ feedback)`，完成审批
+
+      你可以把它理解成“同一个协议在两个角色的两个入口”。
+
+      备注：阅读源码时你可能会看到“计划提交”也使用了 `plan_approval_response` 这类消息类型命名。
+      这里更想强调的是 **request_id 关联模式**：只要请求与响应都携带同一个 request_id，tracker 就能把异步往返串起来；消息类型字符串本身可以随实现调整。
+
+  - type: md
+    title: 追踪器（tracker）：为什么需要一个集中记录的字典？
+    body: |
+      request_id 让消息可关联，但系统还需要一个地方记录“当前状态是什么”。
+
+      教学实现使用两个字典作为 tracker：
+      - `shutdown_requests[request_id] = {target, status}`  
+      - `plan_requests[request_id] = {from, plan, status}`
+
+      它们让 lead 可以：
+      - 查询某个 request_id 的最新状态  
+      - 把“收到响应”转化为“状态更新”
+
+      同时，因为 lead 与队友在不同线程里更新 tracker，代码用一把 lock 保护这些结构，避免竞态。
+
+      需要注意的边界：tracker 是内存态的。如果 lead 重启，这些 pending 请求就会丢失；更完整实现需要把 tracker 持久化或从消息日志重建。
+
+  - type: md
+    title: 动手练习：关机与计划门控各走一遍
+    body: |
+      1) 运行：
+
+      ```bash
       python agents/s10_team_protocols.py
       ```
-      
-      可以尝试的提示:
-      
-      1. `Spawn alice as a coder. Then request her shutdown.`
-      2. `List teammates to see alice's status after shutdown approval`
-      3. `Spawn bob with a risky refactoring task. Review and reject his plan.`
-      4. `Spawn charlie, have him submit a plan, then approve it.`
-      5. 输入 `/team` 监控状态
+
+      2) 练习 A：关机协议  
+      - spawn `alice`  
+      - 发起 shutdown_request  
+      - 观察 alice 是否会 approve 并进入 shutdown 状态
+
+      3) 练习 B：计划审批  
+      - spawn `bob`，给一个“高风险”的重构任务  
+      - 观察 bob 是否先提交计划  
+      - lead 选择 reject，并给出一条明确反馈（例如要求分阶段或先补测试）  
+      - 看 bob 是否会调整计划再提交
+
+      4) 微改动（建议）：
+      - 把 tracker 的条目写入文件（例如 `.team/requests.json`），让状态能跨重启存活。  
+      - 给 plan_approval 增加一个 “scope / files” 字段，观察结构化计划是否更易审批。
 
   - type: md
-    title: 动手练习（本地运行）
+    title: 原文阅读
     body: |
-      如果你还没有配置运行环境，请先完成《导论》里的准备步骤。
-      
-      本课建议最小实践：
-      
-      ```sh
-      python agents/s10_team_protocols.py
-      ```
-      
-      你可以把本课当成一个小实验：
-      
-      1) 先按文档里的 `试一试` 跑通一次（确保能复现）。
-      2) 再做一次**微改动**（例如：添加一个新的提示、改一个阈值、加一个危险命令拦截），观察行为差异。
-      
-      检查点（你应该能回答）：
-      
-      - 这节课新增的“机制”是什么？它解决了什么具体失败模式？
-      - 这套机制的状态/真实来源是什么（内存、messages[]、文件系统、线程）？
+      - 日期：2026-02-26（仓库快照）
+      - 来源：shareAI-lab/learn-claude-code（MIT，commit: ff8acd8）
+      - 建议：对照阅读 shutdown_requests / plan_requests 两个 tracker 的更新点、`request_id` 如何在消息中穿透往返、以及队友侧 `should_exit` 的设置逻辑；同时留意：计划协议在代码里通过“同名工具的两种输入形状”实现。
+
+  - type: url
+    title: "上游文档：s10 Team Protocols"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/docs/zh/s10-team-protocols.md
+    mode: open
+
+  - type: url
+    title: "上游代码：agents/s10_team_protocols.py"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/agents/s10_team_protocols.py
+    mode: open
 
   - type: md
-    layout: inline
+    title: 回到开头的问题：一些提示（Hints）
     body: |
-      本课在上游仓库中的位置：
-      
-      - 文档：`docs/zh/s10-team-protocols.md`
-      - 代码：`agents/s10_team_protocols.py`
-      
-      上游仓库：`https://github.com/shareAI-lab/learn-claude-code`
+      1) 优雅关机需要握手，是因为队友可能正处在不可安全中断的动作中；协议允许它批准/拒绝，并把停止变成可控状态变更。  
+      2) 计划审批是一种执行门控：把“先做什么、风险在哪里、如何验证”显式化，避免高风险改动直接落到执行面。  
+      3) request_id 解决的是异步系统里的关联问题：让乱序/延迟环境下的请求与响应仍能被稳定匹配。  
+      4) FSM + tracker 把协作变成可追踪状态：pending→approved/rejected，让系统能查询、能监控、也更容易做后续扩展（超时、重试、撤销等）。

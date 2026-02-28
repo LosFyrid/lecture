@@ -1,11 +1,18 @@
 id: agent-dev-201-t02-context-engineering
-title: "Context Engineering：长任务上下文管理"
+title: "上下文工程：长任务的注意力预算管理"
 description: |
-  系统掌握 context engineering：把上下文当作有限注意力预算进行选择/排序/压缩/隔离；
-  理解长上下文退化与长任务的失败模式，并学习可落地的工程手段（compaction、JIT、note-taking 等）。
+  做长任务 agent 时，常见的“看起来像模型变笨了”的问题，本质上往往是：模型在**错误的上下文**上做了很认真、很昂贵的推理。
+  一味把更多历史对话、更多检索片段塞进输入，只会带来三个副作用：成本上升、注意力被稀释、以及行为逐步漂移（drift）。
+
+  本 track 用一个工程视角重新定义 *context*：它不是“尽量多给信息”，而是一次调用里模型能看到的**有限注意力预算**。
+  你将学习如何像管理缓存/索引一样管理上下文：选择什么进入窗口、用什么结构组织、什么时候压缩或卸载、哪些信息要隔离，如何诊断“长上下文退化”的失败模式。
+
+  读完后，你应该能把“上下文”从一个黑盒参数，改造成一条可设计、可调参、可回归测试的管线。
+
+  学习建议：如果你已经掌握了 agent loop/harness 的基本结构（模型如何在多轮里获取观测、如何执行工具、如何回填结果），再来学习这条 track 会更顺畅；因为 context engineering 讨论的很多“失败”，本质上发生在 loop 的每一轮输入管线里。
 modules:
   - id: ce-definition-diagnosis
-    title: "什么是 Context Engineering（定义与诊断框架）"
+    title: "第 1 章：定义与诊断——把 Context 当作注意力预算"
     lessons:
       - devblog-2025-09-29-effective-context-engineering-for-ai-agents
       - devblog-2025-06-23-the-rise-of-context-engineering
@@ -13,20 +20,20 @@ modules:
       - devblog-2025-06-23-context-engineering-for-agents
       - devblog-2025-07-03-context-engineering-guide-techniques-for-ai-agen
   - id: ce-minimal-toolkit
-    title: "最小可运行的 Context 工程组件（Select/Write/Compress）"
+    title: "第 2 章：最小工具箱——选择、记录与压缩（Select / Write / Compress）"
     lessons:
       - devblog-2026-01-19-context-kit
   - id: ce-failure-modes
-    title: "长上下文退化与失败模式（Context Rot / Poisoning 等）"
+    title: "第 3 章：失败模式——Context Rot、Poisoning 与长上下文退化"
     lessons:
       - devblog-2025-07-14-context-rot-how-increasing-input-tokens-impacts
       - devblog-2025-06-22-how-long-contexts-fail
   - id: ce-own-context
-    title: "自定义上下文格式：Own Your Context Window"
+    title: "第 4 章：自定义上下文格式——Own Your Context Window"
     lessons:
       - devblog-2024-03-15-12-factor-agents-content-factor-03-own-your-cont
   - id: ce-long-horizon
-    title: "长任务的上下文管理：卸载/压缩/隔离/触发器"
+    title: "第 5 章：长任务策略——卸载、隔离与触发器"
     lessons:
       - devblog-2026-01-28-context-management-for-deep-agents
       - devblog-2026-02-12-long-horizon-document-agents

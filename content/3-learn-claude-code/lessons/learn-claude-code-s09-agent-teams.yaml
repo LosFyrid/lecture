@@ -1,258 +1,142 @@
 id: learn-claude-code-s09-agent-teams
-title: "s09 Agent Teams：队友 + JSONL 邮箱"
+title: "第 9 课：Agent Teams——持久化队友 + 文件邮箱，让多个 agent 能协调"
 summary: |
-  从单体走向多智能体：用“队友”抽象 + append-only 的 JSONL 邮箱，实现异步、可持久的队友通信。
+  s04 的 subagent 是一次性的“临时工”，s08 的后台任务只会跑命令。真正的团队协作需要：持久化身份、生命周期管理、以及通信通道。
+  本课用 .team/config.json 维护名册，用 JSONL 收件箱实现 message bus，让队友在独立线程里运行自己的 agent loop 并互相发消息。
 items:
   - type: md
-    title: 学习目标
+    title: 导入：本课要回答的问题
     body: |
-      - 理解为什么队友通信需要持久化：并发、崩溃恢复、可审计。
-      - 掌握 JSONL 邮箱协议的直觉：追加即发送、排空即读取。
-      - 能运行 `agents/s09_agent_teams.py` 并让两个队友协作完成一个小任务。
+      当你开始把一个复杂任务拆给多个执行体时，很快会发现两种“并行”都不够：
+      - subagent（s04）能探索，但它结束就消失，无法持续跟进；  
+      - background task（s08）能并行跑命令，但它不会做 LLM 驱动的决策，也无法对话协调。
 
-      建议：阅读正文时，把注意力放在“这一课只新增了哪一个机制”。
+      本课要回答：
+
+      1) 从“一个 agent”走向“一个团队”，最缺的三个基础设施是什么？  
+      2) 什么是“持久化队友”？它与 subagent 的差别在哪里？  
+      3) 为什么用 JSONL 收件箱可以作为教学版的通信协议？  
+      4) 轮询收件箱、读取后排空（drain-on-read）会带来哪些行为特征与边界？
 
   - type: md
-    title: 讲义（问题 → 方案 → 原理 → 代码）
+    title: 概念对齐：Subagent、Teammate 与“协作最小件”
     body: |
-      > 持久化的队友通过 JSONL 收件箱提供了一种教学协议, 将孤立的智能体转变为可通信的团队 -- spawn、message、broadcast 和 drain。
-      
-      ## 问题
-      
-      子智能体 (s04) 是一次性的: 生成、工作、返回摘要、消亡。它们没有身份, 没有跨调用的记忆, 也无法接收后续指令。后台任务 (s08) 运行 shell 命令, 但不能做 LLM 引导的决策或交流发现。
-      
-      真正的团队协作需要三样东西: (1) 存活时间超过单次 prompt 的持久化智能体, (2) 身份和生命周期管理, (3) 智能体之间的通信通道。没有消息机制, 即使持久化的队友也是又聋又哑的 -- 它们可以并行工作但永远无法协调。
-      
-      解决方案将 TeammateManager (用于生成持久化的命名智能体) 与使用 JSONL 收件箱文件的 MessageBus 结合。每个队友在独立线程中运行自己的 agent loop, 每次 LLM 调用前检查收件箱, 可以向任何其他队友或领导发送消息。
-      
-      关于 s06 到 s07 的桥梁: s03 的 TodoManager 条目随压缩 (s06) 消亡。基于文件的任务 (s07) 因为存储在磁盘上而能存活压缩。团队建立在同样的原则上 -- config.json 和收件箱文件持久化在上下文窗口之外。
-      
-      ## 解决方案
-      
-      ```
-      Teammate lifecycle:
-        spawn -> WORKING -> IDLE -> WORKING -> ... -> SHUTDOWN
-      
-      Communication:
-        .team/
-          config.json           <- team roster + statuses
-          inbox/
-            alice.jsonl         <- append-only, drain-on-read
-            bob.jsonl
-            lead.jsonl
-      
-                      +--------+    send("alice","bob","...")    +--------+
-                      | alice  | -----------------------------> |  bob   |
-                      | loop   |    bob.jsonl << {json_line}    |  loop  |
-                      +--------+                                +--------+
-                           ^                                         |
-                           |        BUS.read_inbox("alice")          |
-                           +---- alice.jsonl -> read + drain ---------+
-      
-      5 message types:
-      +-------------------------+------------------------------+
-      | message                 | Normal text between agents   |
-      | broadcast               | Sent to all teammates        |
-      | shutdown_request        | Request graceful shutdown     |
-      | shutdown_response       | Approve/reject shutdown      |
-      | plan_approval_response  | Approve/reject plan          |
-      +-------------------------+------------------------------+
-      ```
-      
-      ## 工作原理
-      
-      1. TeammateManager 通过 config.json 维护团队名册。每个成员有名称、角色和状态。
-      
-      ```python
-      class TeammateManager:
-          def __init__(self, team_dir: Path):
-              self.dir = team_dir
-              self.dir.mkdir(exist_ok=True)
-              self.config_path = self.dir / "config.json"
-              self.config = self._load_config()
-              self.threads = {}
-      ```
-      
-      2. `spawn()` 创建队友并在线程中启动其 agent loop。重新 spawn 一个 idle 状态的队友会将其重新激活。
-      
-      ```python
-      def spawn(self, name: str, role: str, prompt: str) -> str:
-          member = self._find_member(name)
-          if member:
-              if member["status"] not in ("idle", "shutdown"):
-                  return f"Error: '{name}' is currently {member['status']}"
-              member["status"] = "working"
-          else:
-              member = {"name": name, "role": role, "status": "working"}
-              self.config["members"].append(member)
-          self._save_config()
-          thread = threading.Thread(
-              target=self._teammate_loop,
-              args=(name, role, prompt), daemon=True)
-          self.threads[name] = thread
-          thread.start()
-          return f"Spawned teammate '{name}' (role: {role})"
-      ```
-      
-      3. MessageBus 处理 JSONL 收件箱文件。`send()` 追加一行 JSON; `read_inbox()` 读取所有行并清空文件。
-      
-      ```python
-      class MessageBus:
-          def send(self, sender, to, content,
-                   msg_type="message", extra=None):
-              msg = {"type": msg_type, "from": sender,
-                     "content": content,
-                     "timestamp": time.time()}
-              if extra:
-                  msg.update(extra)
-              with open(self.dir / f"{to}.jsonl", "a") as f:
-                  f.write(json.dumps(msg) + "\n")
-              return f"Sent {msg_type} to {to}"
-      
-          def read_inbox(self, name):
-              path = self.dir / f"{name}.jsonl"
-              if not path.exists():
-                  return "[]"
-              msgs = [json.loads(l)
-                      for l in path.read_text().strip().splitlines()
-                      if l]
-              path.write_text("")  # drain
-              return json.dumps(msgs, indent=2)
-      ```
-      
-      4. 每个队友在每次 LLM 调用前检查收件箱, 将收到的消息注入对话上下文。
-      
-      ```python
-      def _teammate_loop(self, name, role, prompt):
-          sys_prompt = f"You are '{name}', role: {role}, at {WORKDIR}."
-          messages = [{"role": "user", "content": prompt}]
-          for _ in range(50):
-              inbox = BUS.read_inbox(name)
-              if inbox != "[]":
-                  messages.append({"role": "user",
-                      "content": f"<inbox>{inbox}</inbox>"})
-                  messages.append({"role": "assistant",
-                      "content": "Noted inbox messages."})
-              response = client.messages.create(
-                  model=MODEL, system=sys_prompt,
-                  messages=messages, tools=TOOLS)
-              messages.append({"role": "assistant",
-                               "content": response.content})
-              if response.stop_reason != "tool_use":
-                  break
-              # execute tools, append results...
-          self._find_member(name)["status"] = "idle"
-          self._save_config()
-      ```
-      
-      5. `broadcast()` 向除发送者外的所有队友发送相同消息。
-      
-      ```python
-      def broadcast(self, sender, content, teammates):
-          count = 0
-          for name in teammates:
-              if name != sender:
-                  self.send(sender, name, content, "broadcast")
-                  count += 1
-          return f"Broadcast to {count} teammates"
-      ```
-      
-      ## 核心代码
-      
-      TeammateManager + MessageBus 核心 (来自 `agents/s09_agent_teams.py`):
-      
-      ```python
-      class TeammateManager:
-          def spawn(self, name, role, prompt):
-              member = self._find_member(name) or {
-                  "name": name, "role": role, "status": "working"
-              }
-              member["status"] = "working"
-              self._save_config()
-              thread = threading.Thread(
-                  target=self._teammate_loop,
-                  args=(name, role, prompt), daemon=True)
-              thread.start()
-              return f"Spawned '{name}'"
-      
-      class MessageBus:
-          def send(self, sender, to, content,
-                   msg_type="message", extra=None):
-              msg = {"type": msg_type, "from": sender,
-                     "content": content, "timestamp": time.time()}
-              if extra: msg.update(extra)
-              with open(self.dir / f"{to}.jsonl", "a") as f:
-                  f.write(json.dumps(msg) + "\n")
-      
-          def read_inbox(self, name):
-              path = self.dir / f"{name}.jsonl"
-              if not path.exists(): return "[]"
-              msgs = [json.loads(l)
-                      for l in path.read_text().strip().splitlines()
-                      if l]
-              path.write_text("")
-              return json.dumps(msgs, indent=2)
-      ```
-      
-      ## 相对 s08 的变更
-      
-      | 组件           | 之前 (s08)       | 之后 (s09)                         |
-      |----------------|------------------|------------------------------------|
-      | Tools          | 6                | 9 (+spawn/send/read_inbox)         |
-      | 智能体数量     | 单一             | 领导 + N 个队友                    |
-      | 持久化         | 无               | config.json + JSONL 收件箱         |
-      | 线程           | 后台命令         | 每线程完整 agent loop              |
-      | 生命周期       | 一次性           | idle -> working -> idle            |
-      | 通信           | 无               | 5 种消息类型 + broadcast           |
-      
-      教学简化说明: 此实现未使用文件锁来保护收件箱访问。在生产中, 多个写入者并发追加需要文件锁或原子重命名。这里使用的单写入者-per-收件箱模式在教学场景下是安全的。
-      
-      ## 设计原理
-      
-      基于文件的邮箱 (追加式 JSONL) 在教学代码中具有可观察、易理解的优势。"读取时排空" 模式 (读取全部, 截断) 用很少的机制就能实现批量传递。代价是延迟 -- 消息只在下一次轮询时才被看到 -- 但对于每轮需要数秒推理时间的 LLM 驱动智能体来说, 本课程中该延迟是可接受的。
-      
-      ## 试一试
-      
-      ```sh
-      cd learn-claude-code
+      **Subagent（子智能体）**  
+      更像一次性委派：给它一个 prompt，它用新 messages[] 做探索，回传摘要，然后结束。
+
+      **Teammate（队友）**  
+      更像一个长期存在的执行体：它有名字、有角色、有状态（working/idle/…），可以被反复唤醒去做不同任务。
+
+      **团队协作的三个最小件**  
+      1) **生命周期**：队友需要能“活过一个 prompt”，否则无法持续推进与复盘。  
+      2) **身份与名册**：你需要知道队友是谁、现在在做什么、是否空闲。  
+      3) **消息通道**：没有通信，再多并行执行体也只是“各干各的”，很难协调依赖与交接。
+
+  - type: md
+    title: 协议与存储：.team/ 目录承载“团队状态”
+    body: |
+      s09 把团队做成文件系统里的一个小“控制面”目录：
+
+      - `.team/config.json`：团队名册（成员列表、角色、状态）  
+      - `.team/inbox/<name>.jsonl`：每个成员一个收件箱（追加式 JSONL）
+
+      这里沿用了 s07 的同一个思想：把关键状态放到对话之外，让它能被多个执行体共享、也能在上下文压缩后存活。
+
+  - type: md
+    title: MessageBus：JSONL 收件箱的 send / read / broadcast
+    body: |
+      MessageBus 的核心是两个动作：
+
+      **send(sender, to, content, type)**  
+      - 把一条消息序列化为 JSON  
+      - 追加写入 `inbox/<to>.jsonl`（append-only）
+
+      **read_inbox(name)**  
+      - 读取收件箱文件的所有行  
+      - 逐行解析 JSON  
+      - 然后把文件清空（drain）
+
+      “读完就排空”让收件箱表现得像一个简单队列：消息不会被重复消费，但也意味着如果你希望“可回放”，需要另外的归档机制。
+
+      **broadcast** 则只是 send 的循环：给所有队友各写一份相同消息（排除发送者）。
+
+      这是一种刻意选择的教学协议：不用引入外部 MQ/数据库，你也能看到消息文件里到底写了什么，从而更容易调试。
+
+  - type: md
+    title: TeammateManager：spawn / status / idle 的生命周期
+    body: |
+      TeammateManager 负责把“队友”从抽象概念变成可管理对象：
+
+      - `spawn(name, role, prompt)` 会把成员写进 config（或更新其状态为 working），然后启动一个线程运行该队友的 loop。  
+      - 如果同名成员已存在但处于 idle/shutdown，spawn 会把它“重新激活”。  
+      - 队友 loop 结束后，会把状态写回为 idle（除非它被标记为 shutdown）。
+
+      这种“idle ↔ working”的切换，使得队友更像一个可复用的 worker，而不是一次性 subagent。
+
+  - type: md
+    title: 队友如何“看到消息”？——每轮先读 inbox，再推理
+    body: |
+      队友线程里运行的是一个熟悉的模式：循环调用 LLM + 工具。
+
+      关键差异是：在每次 LLM 调用前，队友会先读取自己的 inbox。
+      如果 inbox 里有消息，就把它们注入到自己的 messages[] 里，作为下一轮推理的输入。
+
+      这让通信具备一个自然节奏：  
+      - 发送方只负责把消息写入文件；  
+      - 接收方在下一轮“抬头看一眼邮箱”，再决定如何行动与回复。
+
+      这种轮询延迟在教学系统里通常是可接受的：因为每轮推理本身就可能需要几秒。
+
+  - type: md
+    title: 一个重要边界：文件邮箱的并发与一致性
+    body: |
+      文件邮箱的简洁性也带来一些边界：
+
+      - 追加写入如果出现多个写入者并发，需要更强的原子性保障（例如文件锁）。  
+      - “读完排空”会让你失去历史消息；如果你需要审计与回放，需要把消息另存一份。  
+      - 收件箱只提供“最终送达”，不提供“立即送达”——队友必须轮询才能看到消息。
+
+      教学实现有意保持简单，让你先建立“协作=生命周期+名册+消息通道”的心智模型；生产系统往往会引入更成熟的消息基础设施。
+
+  - type: md
+    title: 动手练习：让两个队友分工，并用消息完成交接
+    body: |
+      1) 运行：
+
+      ```bash
       python agents/s09_agent_teams.py
       ```
-      
-      可以尝试的提示:
-      
-      1. `Spawn alice (coder) and bob (tester). Have alice send bob a message.`
-      2. `Broadcast "status update: phase 1 complete" to all teammates`
-      3. `Check the lead inbox for any messages`
-      4. 输入 `/team` 查看带状态的团队名册
-      5. 输入 `/inbox` 手动检查领导的收件箱
+
+      2) 建议的分工任务（任选其一）：
+      - spawn `alice`（coder）和 `bob`（tester）：让 alice 改一个小功能，让 bob 跑测试并把失败信息发回。  
+      - 广播一个状态更新（broadcast），观察每个队友是否会把它当作新约束。  
+      - 用 `/team` 看团队名册的状态变化，用 `/inbox` 看 lead 的收件箱。
+
+      3) 微改动（建议）：
+      - 让 send_message 的 payload 附带 `task_id` 或 `file_paths`（extra 字段），提高交接时的可追溯性。  
+      - 把 inbox 注入格式从“逐条 JSON dump”改成“统一包裹在 <inbox>…</inbox>”，观察模型处理多条消息时的稳定性变化。
 
   - type: md
-    title: 动手练习（本地运行）
+    title: 原文阅读
     body: |
-      如果你还没有配置运行环境，请先完成《导论》里的准备步骤。
-      
-      本课建议最小实践：
-      
-      ```sh
-      python agents/s09_agent_teams.py
-      ```
-      
-      你可以把本课当成一个小实验：
-      
-      1) 先按文档里的 `试一试` 跑通一次（确保能复现）。
-      2) 再做一次**微改动**（例如：添加一个新的提示、改一个阈值、加一个危险命令拦截），观察行为差异。
-      
-      检查点（你应该能回答）：
-      
-      - 这节课新增的“机制”是什么？它解决了什么具体失败模式？
-      - 这套机制的状态/真实来源是什么（内存、messages[]、文件系统、线程）？
+      - 日期：2026-02-26（仓库快照）
+      - 来源：shareAI-lab/learn-claude-code（MIT，commit: ff8acd8）
+      - 建议：对照阅读 `.team/config.json` 与 `.team/inbox/*.jsonl` 的布局、`spawn()` 如何管理状态、以及 MessageBus 的 send/read/drain 模式；同时留意文档对“未使用文件锁”的简化说明。
+
+  - type: url
+    title: "上游文档：s09 Agent Teams"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/docs/zh/s09-agent-teams.md
+    mode: open
+
+  - type: url
+    title: "上游代码：agents/s09_agent_teams.py"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/agents/s09_agent_teams.py
+    mode: open
 
   - type: md
-    layout: inline
+    title: 回到开头的问题：一些提示（Hints）
     body: |
-      本课在上游仓库中的位置：
-      
-      - 文档：`docs/zh/s09-agent-teams.md`
-      - 代码：`agents/s09_agent_teams.py`
-      
-      上游仓库：`https://github.com/shareAI-lab/learn-claude-code`
+      1) 团队协作的三件基础设施是：持久化生命周期、身份/名册、消息通道；没有消息，协作只剩“并行但不协调”。  
+      2) teammate 与 subagent 的差别在于“可被再次唤醒”：它有名字与状态，能持续接收后续指令。  
+      3) JSONL 收件箱是一种可观察的教学协议：append 写入、read 后 drain，足以搭起 send/broadcast 的最小消息总线。  
+      4) 轮询与 drain-on-read 带来延迟与一致性边界：生产系统通常需要更强的锁、归档与投递语义。

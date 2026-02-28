@@ -1,27 +1,36 @@
 id: agent-dev-201-t06-evaluation-observability
-title: "Evaluation & Observability：评估、Tracing 与安全"
+title: "评估与可观测：把 Evals / Tracing / Safety 写进迭代闭环"
 description: |
-  把评估与可观测写进工程闭环：离线回归 + 在线监控 + tracing + judges；
-  理解 benchmark 有效性治理、自治度指标，以及安全 guardrail 的系统化路径。
+  agent 的行为具有非确定性：同一个任务、同一套代码，在不同输入、不同上下文、不同时间都可能走出不一样的轨迹。
+  这意味着“看起来能用”远远不够——你需要一套能持续发现退化、定位原因、并把改进变成可回归的工程闭环。
+
+  本 track 讨论三件彼此耦合的事：
+  - **评估（evals）**：从 Day 0 就把评估写进代码与 CI，让迭代有抓手。  
+  - **可观测（observability）**：用 tracing / 日志 / 指标把“它做了什么”变成可查询的事实，而不是靠复述与猜测。  
+  - **安全（safety）**：把 guardrails 当作系统设计问题（输入、工具、策略、监控与处置），而不是单点提示词技巧。
+
+  同时，你也会看到：benchmark 会“失效”，指标会被优化，自治度很难量化——这些并不是放弃评估的理由，而是需要治理与设计的对象。
+
+  学习建议：如果你已经有一个能跑通真实任务的 agent（哪怕很简陋），这条 track 会更“立刻可用”。评估与可观测的许多细节，需要你能拿到真实轨迹与失败样本才能体会；反过来，一旦你开始迭代上线系统，它们往往会成为决定你能否持续改进的关键基础设施。
 modules:
   - id: evals-as-code
-    title: "Evals-as-Code：从 Day 0 建评估"
+    title: "第 1 章：Evals-as-Code——从 Day 0 建评估"
     lessons:
       - devblog-2026-02-18-monday-service-langsmith-building-a-code-first-e
   - id: tooluse-eval
-    title: "工具型 agent 的真实环境评估"
+    title: "第 2 章：真实环境评估——工具型 Agent 的 OpenEnv 方法"
     lessons:
       - devblog-2026-02-20-openenv-in-practice-evaluating-tool-using-agents
       - devblog-2025-12-20-the-open-evaluation-standard-benchmarking-nvidia
   - id: benchmark-governance
-    title: "Benchmark 治理：指标何时失效"
+    title: "第 3 章：Benchmark 治理——指标何时失效"
     lessons:
       - devblog-2026-02-23-why-we-no-longer-evaluate-swe-bench-verified
   - id: autonomy-metrics
-    title: "自治度指标：如何测量 agent autonomy"
+    title: "第 4 章：自治度指标——如何测量 Agent Autonomy"
     lessons:
       - devblog-2026-02-18-measuring-ai-agent-autonomy-in-practice
   - id: safety-guardrails
-    title: "安全专题：系统级 jailbreak 防线"
+    title: "第 5 章：安全专题——系统级 Jailbreak 防线"
     lessons:
       - devblog-2025-02-03-constitutional-classifiers-defending-against-uni

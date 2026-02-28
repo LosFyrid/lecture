@@ -1,178 +1,146 @@
 id: learn-claude-code-s01-agent-loop
-title: "s01 Agent Loop：智能体循环（最小闭环）"
+title: "第 1 课：Agent Loop——把一次对话变成可执行的闭环"
 summary: |
-  理解 AI 编程智能体的最小模式：while 循环驱动的 tool-use 反馈闭环；掌握 stop_reason=="tool_use" 的控制语义。
+  认识 coding agent 的最小形态：一个循环负责“调用模型→执行工具→回填结果→继续/停止”。
+  你将理解 stop_reason / tool_use / tool_result 的控制语义，并用代码读懂这套闭环如何落到 messages[] 上。
 items:
   - type: md
-    title: 学习目标
+    title: 导入：本课要回答的问题
     body: |
-      - 用自己的话解释：为什么 coding agent 的核心是一个循环，而不是一次性回答。
-      - 画出/口述最小闭环：messages[] → LLM → tool_use → tool_result → messages[]。
-      - 能在本地运行 `agents/s01_agent_loop.py`，并定位 `run_bash()` 的安全闸门。
+      如果你把 LLM 当作“能写代码的聊天机器人”，你很快会遇到一种挫败：它能解释、能建议，但**它无法自己去做**。
+      coding agent 的第一件事，就是把“建议”变成“行动”，并且让行动的结果能反过来改变下一步决策。
 
-      建议：阅读正文时，把注意力放在“这一课只新增了哪一个机制”。
+      读完本课，你可以尝试回答：
+
+      1) 为什么写代码这类任务通常需要多轮“观察→行动→再观察”，而不只是一次生成？  
+      2) 所谓 *agent loop* 到底循环了什么？循环的“状态”存在哪里？  
+      3) 模型什么时候想调用工具？代码里用什么信号判断“该停了”？  
+      4) 把 shell（bash）当工具有什么天然风险？最小的安全闸门可以是什么？
 
   - type: md
-    title: 讲义（问题 → 方案 → 原理 → 代码）
+    title: 概念对齐：Chat 调用、Tool Use 与 Agent Loop
     body: |
-      > AI 编程智能体的核心是一个 while 循环 -- 把工具执行结果反馈给模型, 直到模型决定停止。
-      
-      ## 问题
-      
-      为什么语言模型不能直接回答编程问题? 因为编程需要**与真实世界交互**。模型需要读取文件、运行测试、检查错误、反复迭代。单次的提示-响应交互无法做到这些。
-      
-      没有 agent loop, 你就得手动把输出复制粘贴回模型。用户自己变成了那个循环。Agent loop 将这个过程自动化: 调用模型, 执行它要求的工具, 把结果送回去, 重复 -- 直到模型说 "我完成了"。
-      
-      考虑一个简单任务: "创建一个打印 hello 的 Python 文件。" 模型需要 (1) 决定写文件, (2) 写入文件, (3) 验证是否正常工作。至少三次工具调用。没有循环的话, 每一次都需要人工干预。
-      
-      ## 解决方案
-      
+      先把几个术语对齐到工程可实现的含义上。
+
+      **Chat 调用（一次性对话基线）**  
+      这里把 “chat” 当作一种常见基线：你给模型一个输入，它给你一个输出，中间没有“可执行动作”与“动作结果回流”这条链路。
+      它适合解释与头脑风暴，但对“需要在真实环境里试错”的任务天然受限。
+
+      **Tool use（工具调用）**  
+      Tool use 指模型在输出里不直接给最终答案，而是提出一个“请执行这个工具”的请求，例如：
+      - 运行一条命令（bash）
+      - 读一个文件
+      - 调用一个函数
+
+      执行工具得到的结果（tool result）会成为新的“观测”，再喂回给模型。
+
+      **Agent loop（智能体循环）**  
+      Agent loop 是把上面两件事组织成控制流的一层：重复执行“调用模型→如果有工具请求就执行→把结果写回上下文→继续”，直到模型不再请求工具。
+
+      **stop_reason（停止原因）**  
+      在这份实现里，SDK 会给出 `stop_reason` 字段：  
+      - `stop_reason == "tool_use"`：表示模型的输出包含工具请求（需要你执行工具）。  
+      - `stop_reason != "tool_use"`：表示模型此轮不需要工具（通常意味着它认为可以收尾或给出回答）。
+
+      不同供应商/SDK 对这个信号的命名与暴露方式可能不同，但概念是类似的：你需要一个明确的“是否还有动作要做”的判据。
+
+  - type: md
+    title: 最小闭环：messages[] 如何承载“状态”
+    body: |
+      这门课的一个关键取舍是：**把状态尽量压在 `messages[]` 里**。
+      这样你可以直观看到循环每一轮到底发生了什么：模型看到了什么、提出了什么动作、工具返回了什么、下一轮又怎样继续。
+
+      一个最小闭环可以用这张图理解：
+
       ```
-      +----------+      +-------+      +---------+
-      |   User   | ---> |  LLM  | ---> |  Tool   |
-      |  prompt  |      |       |      | execute |
-      +----------+      +---+---+      +----+----+
-                            ^               |
-                            |   tool_result |
-                            +---------------+
-                            (loop continues)
-      
-      The loop terminates when stop_reason != "tool_use".
-      That single condition is the entire control flow.
+      User prompt
+         ↓
+      messages[]  --(LLM + tools schema)-->  assistant response (text + tool_use blocks)
+         ↑                                               ↓
+         |                                       execute tools
+         |                                               ↓
+      append tool_result blocks  <-------------------  observations
       ```
-      
-      ## 工作原理
-      
-      1. 用户提供一个 prompt, 成为第一条消息。
-      
-      ```python
-      history.append({"role": "user", "content": query})
-      ```
-      
-      2. 消息数组连同工具定义一起发送给 LLM。
-      
-      ```python
-      response = client.messages.create(
-          model=MODEL, system=SYSTEM, messages=messages,
-          tools=TOOLS, max_tokens=8000,
-      )
-      ```
-      
-      3. 助手的响应被追加到消息列表中。
-      
-      ```python
-      messages.append({"role": "assistant", "content": response.content})
-      ```
-      
-      4. 检查 stop_reason。如果模型没有调用工具, 循环结束。在本节最小实现里, 这是唯一的循环退出条件。
-      
-      ```python
-      if response.stop_reason != "tool_use":
-          return
-      ```
-      
-      5. 对响应中的每个 tool_use 块, 执行工具 (本节课中是 bash) 并收集结果。
-      
-      ```python
-      for block in response.content:
-          if block.type == "tool_use":
-              output = run_bash(block.input["command"])
-              results.append({
-                  "type": "tool_result",
-                  "tool_use_id": block.id,
-                  "content": output,
-              })
-      ```
-      
-      6. 结果作为 user 消息追加, 循环继续。
-      
-      ```python
-      messages.append({"role": "user", "content": results})
-      ```
-      
-      ## 核心代码
-      
-      最小可行智能体 -- 不到 30 行代码实现整个模式
-      (来自 `agents/s01_agent_loop.py`, 第 66-86 行):
-      
-      ```python
-      def agent_loop(messages: list):
-          while True:
-              response = client.messages.create(
-                  model=MODEL, system=SYSTEM, messages=messages,
-                  tools=TOOLS, max_tokens=8000,
-              )
-              messages.append({"role": "assistant", "content": response.content})
-              if response.stop_reason != "tool_use":
-                  return
-              results = []
-              for block in response.content:
-                  if block.type == "tool_use":
-                      output = run_bash(block.input["command"])
-                      results.append({
-                          "type": "tool_result",
-                          "tool_use_id": block.id,
-                          "content": output,
-                      })
-              messages.append({"role": "user", "content": results})
-      ```
-      
-      ## 变更内容
-      
-      这是第 1 节课 -- 起点。没有前置课程。
-      
-      | 组件          | 之前       | 之后                           |
-      |---------------|------------|--------------------------------|
-      | Agent loop    | (无)       | `while True` + stop_reason     |
-      | Tools         | (无)       | `bash` (单一工具)              |
-      | Messages      | (无)       | 累积式消息列表                 |
-      | Control flow  | (无)       | `stop_reason != "tool_use"`    |
-      
-      ## 设计原理
-      
-      这个循环是所有基于 LLM 的智能体基础。生产实现还会增加错误处理、token 计数、流式输出、重试、权限策略与生命周期编排, 但核心交互模式仍从这里开始。本节强调简洁性: 在本节最小实现里, 一个退出条件 (`stop_reason != "tool_use"`) 就能支撑我们先学会主流程。本课程中的其他内容都在这个循环上叠加。理解这个循环是建立基础心智模型, 不是完整的生产架构。
-      
-      ## 试一试
-      
-      ```sh
-      cd learn-claude-code
+
+      这里的“状态”不是一个神秘对象，它主要由两类东西组成：
+      1) 累积对话与中间产物（写在 messages 里）  
+      2) 外部世界的变化（文件、进程输出、测试结果等），以 tool_result 的形式被“搬运”回 messages
+
+      你可以把它类比成：模型在做决策，工具在改变世界；而 messages 是两者之间的“唯一通信总线”。
+
+  - type: md
+    title: 机制拆解：一次循环里到底发生了什么？
+    body: |
+      把“循环”拆成可实现的 6 个动作，会更容易读懂代码（并在后续课程里逐步改造它）：
+
+      1) **把用户输入写进 messages**：让模型看到任务。  
+      2) **携带 tools schema 调用模型**：让模型知道“它能做什么动作”。  
+      3) **把 assistant 输出追加回 messages**：保留模型当轮的思考产物（文本/工具请求）。  
+      4) **判断是否需要执行工具**：这一份实现使用 `stop_reason == "tool_use"` 作为信号。  
+      5) **执行每个 tool_use**：把请求翻译成实际执行（这里是运行 bash 命令）。  
+      6) **把 tool_result 写回 messages**：让下一轮模型基于真实结果继续推进。
+
+      这 6 步的顺序有两个细节值得注意：
+      - **先记录再执行**：先把模型输出写进 messages，再去执行工具。这样后续你做 tracing/回放时能看到“当时它是怎么想的”。  
+      - **结果要可关联**：tool_result 需要带上 `tool_use_id`，否则多工具、多并发时你会丢失“哪个结果对应哪个请求”。
+
+  - type: md
+    title: 代码走读：这个最小实现在哪里“刻意简化”？
+    body: |
+      在 `agents/s01_agent_loop.py` 里，你会看到三个对后续课程非常重要的“刻意简化”：
+
+      **1) 只有一个工具：bash**  
+      这能把注意力集中在“闭环控制流”上，而不是工具路由。但也意味着：在真实系统里你需要更细的工具边界与权限。
+
+      **2) 退出条件非常单一**  
+      只要模型不请求工具就停。生产系统往往还会加：最大轮次、超时、预算（token/费用）、异常重试、人工确认等。
+
+      **3) 安全闸门是最小的字符串黑名单**  
+      `run_bash()` 里用危险命令片段做拦截，并设置了 120 秒超时。这足够让学习时“不至于一键把机器搞坏”，但并不等价于生产沙箱。
+
+      这三点并不是缺陷，而是教学策略：先把骨架搭出来，再逐步增加“系统要为不确定性付出的工程成本”。
+
+  - type: md
+    title: 动手练习：用一个小改动验证你真的理解了 loop
+    body: |
+      本课的练习目标不是“写更多代码”，而是确认你能把 loop 的关键机制说清楚、改对、并解释行为变化。
+
+      1) 运行（先跑通一次）：
+
+      ```bash
       python agents/s01_agent_loop.py
       ```
-      
-      可以尝试的提示:
-      
-      1. `Create a file called hello.py that prints "Hello, World!"`
-      2. `List all Python files in this directory`
-      3. `What is the current git branch?`
-      4. `Create a directory called test_output and write 3 files in it`
+
+      2) 做一个微改动（任选其一）：
+      - 把 `run_bash()` 的 `timeout` 改成更短（例如 10 秒），观察长命令会如何失败、错误怎样回流到模型。  
+      - 在危险命令列表里加一条你认为也应该被拦截的模式（例如写入某个敏感路径），观察模型如何调整策略。  
+      - 给 tool schema 增加更清晰的描述（description），观察模型的工具使用是否更稳定。
+
+      3) 用两三句话写下你的观察（建议写在自己的实验笔记里）：
+      - “模型的下一步决策”是如何依赖 tool_result 的？  
+      - 哪个信息如果不回填，它会开始瞎猜？
 
   - type: md
-    title: 动手练习（本地运行）
+    title: 原文阅读
     body: |
-      如果你还没有配置运行环境，请先完成《导论》里的准备步骤。
-      
-      本课建议最小实践：
-      
-      ```sh
-      python agents/s01_agent_loop.py
-      ```
-      
-      你可以把本课当成一个小实验：
-      
-      1) 先按文档里的 `试一试` 跑通一次（确保能复现）。
-      2) 再做一次**微改动**（例如：添加一个新的提示、改一个阈值、加一个危险命令拦截），观察行为差异。
-      
-      检查点（你应该能回答）：
-      
-      - 这节课新增的“机制”是什么？它解决了什么具体失败模式？
-      - 这套机制的状态/真实来源是什么（内存、messages[]、文件系统、线程）？
+      - 日期：2026-02-26（仓库快照）
+      - 来源：shareAI-lab/learn-claude-code（MIT，commit: ff8acd8）
+      - 建议：对照阅读“文档里的 6 步闭环”与代码里的 `agent_loop()`；同时留意 `tool_use_id` 这种看似琐碎、但对可追溯性很关键的字段。
+
+  - type: url
+    title: "上游文档：s01 The Agent Loop"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/docs/zh/s01-the-agent-loop.md
+    mode: open
+
+  - type: url
+    title: "上游代码：agents/s01_agent_loop.py"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/agents/s01_agent_loop.py
+    mode: open
 
   - type: md
-    layout: inline
+    title: 回到开头的问题：一些提示（Hints）
     body: |
-      本课在上游仓库中的位置：
-      
-      - 文档：`docs/zh/s01-the-agent-loop.md`
-      - 代码：`agents/s01_agent_loop.py`
-      
-      上游仓库：`https://github.com/shareAI-lab/learn-claude-code`
+      1) 编程任务需要多轮闭环，核心原因不是“模型不够聪明”，而是任务需要**真实反馈**：运行结果、报错、文件状态，都会改变下一步动作。  
+      2) agent loop 循环的不是“同一句话”，而是一段可观测的状态：messages 里记录了意图与结果，外部世界提供了新的观测。  
+      3) `stop_reason` 只是一个实现层信号；可迁移的概念是：你需要清晰判断“这一轮是否产生了待执行动作”。  
+      4) 把 bash 当工具最大的风险是“执行面的破坏性”；最小闸门可以是超时、危险命令拦截、以及（更重要的）把执行放进受控的沙箱边界里。

@@ -1,203 +1,127 @@
 id: learn-claude-code-s03-todowrite
-title: "s03 TodoWrite：先计划再行动（可见的进度）"
+title: "第 3 课：TodoWrite——把“计划与进度”外化成可更新的状态"
 summary: |
-  把“计划”变成可见、可更新的结构化状态（TodoManager），并用 nag 机制促使模型持续维护进度。
+  多步任务里，agent 容易重复、跑偏或半途改计划。本课用一个可见的 TodoManager 让模型把计划写成结构化状态，
+  并通过 nag reminder 在它“忘了更新计划”时把提醒注入上下文，降低长对话漂移带来的失控。
 items:
   - type: md
-    title: 学习目标
+    title: 导入：本课要回答的问题
     body: |
-      - 解释为什么 plan 要外化成结构化状态，而不是只写在自然语言里。
-      - 理解 TodoManager 的约束：同一时间最多一个 in_progress，避免上下文频繁切换。
-      - 能在本地运行 `agents/s03_todo_write.py` 并观察 nag 注入行为。
+      当任务只有两三步时，模型通常能“凭感觉”把它做完；但一旦任务变成十几步（重构、迁移、补测试、修 CI），你会看到一些典型现象：
+      - 它做了 1-3 步之后开始即兴发挥，忘了后面的目标；
+      - 它重复做已经完成的事（反复读同一个文件、反复改同一段代码）；
+      - 你很难知道它现在“认为自己在做什么”，更难在中途纠偏。
 
-      建议：阅读正文时，把注意力放在“这一课只新增了哪一个机制”。
+      本课要回答：
+
+      1) 为什么长对话会让 agent 更容易“漂移”（drift）？这和上下文窗口有什么关系？  
+      2) 怎样让“计划”从一段自然语言，变成一个可检查、可更新的状态？  
+      3) nag reminder 注入在机制上做了什么？为什么它不是单纯的提示词？  
+      4) “同一时间只允许一个 in_progress”这种约束，工程上在防什么？
 
   - type: md
-    title: 讲义（问题 → 方案 → 原理 → 代码）
+    title: 概念对齐：计划、状态与漂移（drift）
     body: |
-      > TodoManager 让智能体能追踪自己的进度, 而 nag reminder 注入机制在它忘记更新时强制提醒。
-      
-      ## 问题
-      
-      当智能体处理多步骤任务时, 它经常丢失对已完成和待办事项的追踪。没有显式的计划, 模型可能重复工作、跳过步骤或跑偏。用户也无法看到智能体内部的计划。
-      
-      这个问题比听起来更严重。长对话会导致模型 "漂移" -- 随着上下文窗口被工具结果填满, 系统提示的影响力逐渐减弱。一个 10 步的重构任务可能完成了 1-3 步, 然后模型就开始即兴发挥, 因为它忘了第 4-10 步的存在。
-      
-      解决方案是结构化状态: 一个模型显式写入的 TodoManager。模型创建计划, 工作时将项目标记为 in_progress, 完成后标记为 completed。nag reminder 机制在模型连续 3 轮以上不更新待办时注入提醒。
-      
-      注: nag 阈值 3 轮是为教学可见性设的低值, 生产环境通常更高。从 s07 起, 课程转向 Task 看板处理持久化多步工作; TodoWrite 仍可用于轻量清单。
-      
-      ## 解决方案
-      
-      ```
-      +----------+      +-------+      +---------+
-      |   User   | ---> |  LLM  | ---> | Tools   |
-      |  prompt  |      |       |      | + todo  |
-      +----------+      +---+---+      +----+----+
-                            ^               |
-                            |   tool_result |
-                            +---------------+
-                                  |
-                      +-----------+-----------+
-                      | TodoManager state     |
-                      | [ ] task A            |
-                      | [>] task B  <- doing  |
-                      | [x] task C            |
-                      +-----------------------+
-                                  |
-                      if rounds_since_todo >= 3:
-                        inject <reminder> into tool_result
-      ```
-      
-      ## 工作原理
-      
-      1. TodoManager 验证并存储一组带状态的项目。同一时间只允许一个项目处于 `in_progress` 状态。
-      
-      ```python
-      class TodoManager:
-          def __init__(self):
-              self.items = []
-      
-          def update(self, items: list) -> str:
-              validated = []
-              in_progress_count = 0
-              for item in items:
-                  status = item.get("status", "pending")
-                  if status == "in_progress":
-                      in_progress_count += 1
-                  validated.append({
-                      "id": item["id"],
-                      "text": item["text"],
-                      "status": status,
-                  })
-              if in_progress_count > 1:
-                  raise ValueError("Only one task can be in_progress")
-              self.items = validated
-              return self.render()
-      ```
-      
-      2. `todo` 工具和其他工具一样添加到 dispatch map 中。
-      
-      ```python
-      TOOL_HANDLERS = {
-          "bash":  lambda **kw: run_bash(kw["command"]),
-          # ...other tools...
-          "todo":  lambda **kw: TODO.update(kw["items"]),
-      }
-      ```
-      
-      3. nag reminder 在模型连续 3 轮以上不调用 `todo` 时, 向 tool_result 消息中注入 `<reminder>` 标签。
-      
-      ```python
-      def agent_loop(messages: list):
-          rounds_since_todo = 0
-          while True:
-              if rounds_since_todo >= 3 and messages:
-                  last = messages[-1]
-                  if (last["role"] == "user"
-                          and isinstance(last.get("content"), list)):
-                      last["content"].insert(0, {
-                          "type": "text",
-                          "text": "<reminder>Update your todos.</reminder>",
-                      })
-              # ... rest of loop ...
-              rounds_since_todo = 0 if used_todo else rounds_since_todo + 1
-      ```
-      
-      4. 系统提示指导模型使用 todo 进行规划。
-      
-      ```python
-      SYSTEM = f"""You are a coding agent at {WORKDIR}.
-      Use the todo tool to plan multi-step tasks.
-      Mark in_progress before starting, completed when done.
-      Prefer tools over prose."""
-      ```
-      
-      ## 核心代码
-      
-      TodoManager 和 nag 注入 (来自 `agents/s03_todo_write.py`,
-      第 51-85 行和第 158-187 行):
-      
-      ```python
-      class TodoManager:
-          def update(self, items: list) -> str:
-              validated = []
-              in_progress_count = 0
-              for item in items:
-                  status = item.get("status", "pending")
-                  if status == "in_progress":
-                      in_progress_count += 1
-                  validated.append({
-                      "id": item["id"],
-                      "text": item["text"],
-                      "status": status,
-                  })
-              if in_progress_count > 1:
-                  raise ValueError("Only one in_progress")
-              self.items = validated
-              return self.render()
-      
-      # In agent_loop:
-      if rounds_since_todo >= 3:
-          last["content"].insert(0, {
-              "type": "text",
-              "text": "<reminder>Update your todos.</reminder>",
-          })
-      ```
-      
-      ## 相对 s02 的变更
-      
-      | 组件           | 之前 (s02)       | 之后 (s03)                   |
-      |----------------|------------------|--------------------------|
-      | Tools          | 4                | 5 (+todo)                |
-      | 规划           | 无               | 带状态的 TodoManager     |
-      | Nag 注入       | 无               | 3 轮后注入 `<reminder>`  |
-      | Agent loop     | 简单分发         | + rounds_since_todo 计数器|
-      
-      ## 设计原理
-      
-      可见的计划能提高任务完成率, 因为模型可以自我监控进度。nag 机制创造了问责性 -- 没有它, 随着对话上下文增长和早期指令淡化, 模型可能在执行中途放弃计划。"同一时间只允许一个 in_progress" 的约束强制顺序聚焦, 防止上下文切换开销降低输出质量。这个模式之所以有效, 是因为它将模型的工作记忆外化为结构化状态, 使其能够在注意力漂移中存活。
-      
-      ## 试一试
-      
-      ```sh
-      cd learn-claude-code
+      **计划（plan）**  
+      这里的“计划”不是指模型说几句“我将先做 A 再做 B”，而是一个能被重复更新的对象：哪些待办存在、当前正在做哪一项、哪些已经完成。
+
+      **结构化状态（structured state）**  
+      结构化状态指：它有固定字段（例如 `id/text/status`），可以验证（合法值/数量限制），可以渲染成一致的视图。
+      它的价值在于：即使对话变长、上下文变复杂，你仍然能用“字段级”的方式把进度带回模型的注意力中心。
+
+      **漂移（drift）**  
+      drift 可以粗略理解为：随着对话轮次与工具结果增多，模型在局部噪声里投入了更多注意力，
+      早期指令（例如“你的目标是什么”“你应该按什么顺序做”）的影响逐步被稀释，导致行为偏离原先的轨道。
+
+      这不是“模型突然变笨”，更像是“工作记忆被新信息挤占”。因此，解决方案往往不是加更多信息，
+      而是让关键状态以更强的形式反复出现。
+
+  - type: md
+    title: 机制一：TodoManager——让模型把计划写成可验证的对象
+    body: |
+      s03 引入了一个新的工具：`todo`。它背后是一个 `TodoManager`，负责做两件事：
+
+      1) **验证（validate）**：检查每一项是否有文本、状态是否合法、数量是否超限。  
+      2) **存储与渲染（store & render）**：把 todo 列表保存到内存里，并渲染为一段清晰的进度视图返回给模型与用户。
+
+      在实现里，每个 todo item 形如：
+      - `id`：字符串 ID（例如 "1"）  
+      - `text`：待办描述  
+      - `status`：`pending / in_progress / completed`
+
+      你可以把它理解成：把“工作记忆”外置到一个很小的状态机里，让模型每隔一段时间就把“我现在在做什么”写回去。
+
+  - type: md
+    title: 机制二：nag reminder——把“忘了更新”变成可见事件
+    body: |
+      仅仅“提供 todo 工具”还不够：模型可能在执行中途忘记更新 todo，于是 todo 逐步失真，最后又回到 drift 的问题上。
+
+      s03 的做法是加一个非常小的控制机制：**计数器 + 注入**。
+
+      - 代码维护一个 `rounds_since_todo` 计数器：记录“连续多少轮没有调用 todo”。  
+      - 当计数器达到阈值（示例里是 3），就把一段 `<reminder>...</reminder>` 文本插入到最近一条 user 消息的内容块里，
+        让模型在下一次推理时“必然看到”这条提醒。
+
+      这和“在 system prompt 里写一句‘记得更新 todo’”的差别在于：  
+      **注入发生在运行时、发生在失败出现之后，并且以更强的上下文位置出现**。
+      它属于 harness/控制层的动作，而不是模型自己“自觉遵守”。
+
+      这里的阈值（3 轮）主要是为了教学可见性：让你在短对话里也能观察到注入发生；在更长任务里，阈值与策略通常会随系统而调整。
+
+  - type: md
+    title: 一个看似“苛刻”的约束：为什么只允许一个 in_progress？
+    body: |
+      TodoManager 里有一个规则：同一时刻最多只能有一个 `in_progress`。
+
+      你可以把它理解成一种“上下文切换成本治理”：
+      - 如果同时有多个 in_progress，模型更容易在多个子任务之间来回跳，导致每个子任务都推进很慢；  
+      - 工具结果与局部上下文会交织在一起，长任务里更容易出现“我刚才做到哪了”的遗忘；  
+      - 当你要评估/调试时，也很难判断“当前这一轮到底应该推进哪个目标”。
+
+      当然，这不是唯一合理约束；但它很适合作为学习阶段的默认：先让系统形成稳定节奏，再谈并行与分叉。
+
+  - type: md
+    title: 动手练习：把 todo 变成你自己的“任务仪表盘”
+    body: |
+      1) 运行：
+
+      ```bash
       python agents/s03_todo_write.py
       ```
-      
-      可以尝试的提示:
-      
-      1. `Refactor the file hello.py: add type hints, docstrings, and a main guard`
-      2. `Create a Python package with __init__.py, utils.py, and tests/test_utils.py`
-      3. `Review all Python files and fix any style issues`
+
+      2) 观察（建议）：
+      - 模型是否会在开始前先列 todo？  
+      - 它是否会把当前项标记为 in_progress，并在完成后改成 completed？  
+      - 当它连续几轮不更新 todo 时，你能否看到 reminder 被注入？
+
+      3) 微改动（任选其一）：
+      - 把 “3 轮” 阈值改为 1 或 5，观察 agent 的节奏如何变化。  
+      - 在 `TodoManager.update()` 里把最大 todo 数从 20 改小（例如 8），观察模型会不会学会合并/抽象任务。  
+      - 把 `render()` 的格式改成更紧凑的版本（例如每行更短），观察这会不会让模型更愿意频繁更新。
+
+      练习自检：你能否用一句话说清楚 nag reminder “注入”的具体位置与触发条件？
 
   - type: md
-    title: 动手练习（本地运行）
+    title: 原文阅读
     body: |
-      如果你还没有配置运行环境，请先完成《导论》里的准备步骤。
-      
-      本课建议最小实践：
-      
-      ```sh
-      python agents/s03_todo_write.py
-      ```
-      
-      你可以把本课当成一个小实验：
-      
-      1) 先按文档里的 `试一试` 跑通一次（确保能复现）。
-      2) 再做一次**微改动**（例如：添加一个新的提示、改一个阈值、加一个危险命令拦截），观察行为差异。
-      
-      检查点（你应该能回答）：
-      
-      - 这节课新增的“机制”是什么？它解决了什么具体失败模式？
-      - 这套机制的状态/真实来源是什么（内存、messages[]、文件系统、线程）？
+      - 日期：2026-02-26（仓库快照）
+      - 来源：shareAI-lab/learn-claude-code（MIT，commit: ff8acd8）
+      - 建议：对照阅读 `TodoManager.update()` 的验证逻辑、`rounds_since_todo` 的计数与注入位置；同时留意：s03 的 todo 仍是内存态，后续课程会把状态“落盘化”。
+
+  - type: url
+    title: "上游文档：s03 TodoWrite"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/docs/zh/s03-todo-write.md
+    mode: open
+
+  - type: url
+    title: "上游代码：agents/s03_todo_write.py"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/agents/s03_todo_write.py
+    mode: open
 
   - type: md
-    layout: inline
+    title: 回到开头的问题：一些提示（Hints）
     body: |
-      本课在上游仓库中的位置：
-      
-      - 文档：`docs/zh/s03-todo-write.md`
-      - 代码：`agents/s03_todo_write.py`
-      
-      上游仓库：`https://github.com/shareAI-lab/learn-claude-code`
+      1) 长对话的 drift 更像“注意力被新信息稀释”：工具结果变多、上下文变长，计划与约束更容易被挤到边缘。  
+      2) TodoManager 的价值在于把计划变成结构化状态：可验证、可渲染、可反复更新，既给模型看也给人看。  
+      3) nag reminder 的关键不是一句提醒文本，而是“运行时注入”这件事：当系统检测到偏离（多轮不更新）时，把提醒放到模型下一轮一定会看到的位置。  
+      4) “单一 in_progress”是一种对抗上下文切换的简化策略：让系统先学会稳定推进，再考虑并行化。

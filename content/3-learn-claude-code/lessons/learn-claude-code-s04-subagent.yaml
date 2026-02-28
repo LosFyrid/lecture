@@ -1,189 +1,124 @@
 id: learn-claude-code-s04-subagent
-title: "s04 Subagent：进程隔离 = 上下文隔离"
+title: "第 4 课：Subagent——用“新 messages[]”做上下文隔离，并把结果压缩回传"
 summary: |
-  引入子智能体：把一个子任务交给独立进程/独立 messages[] 执行，从机制上隔离上下文污染。
+  探索性任务会把大量无关细节塞进上下文，拖慢长任务并诱发漂移。本课引入 subagent：子智能体用全新的 messages[] 运行，
+  共享文件系统但不共享对话历史，只把最终摘要返回给父智能体，从而保持主上下文干净。
 items:
   - type: md
-    title: 学习目标
+    title: 导入：本课要回答的问题
     body: |
-      - 理解“上下文隔离”为什么需要进程隔离（而不只是变量隔离）。
-      - 掌握 subagent 的输入输出边界：把任务描述/约束作为输入，把结果作为 tool_result 回传。
-      - 能运行 `agents/s04_subagent.py` 并设计一个适合交给 subagent 的子任务。
+      当 agent 开始频繁读文件、跑命令、打印日志时，你会看到一个非常具体的工程问题：**上下文被“探索痕迹”填满**。
+      例如，为了回答“这个项目用了什么测试框架”，模型可能读 5 个文件、跑 3 条命令；但主 agent 真正需要的也许只有一句结论和一两个证据线索。
 
-      建议：阅读正文时，把注意力放在“这一课只新增了哪一个机制”。
+      本课围绕以下问题展开：
+
+      1) 为什么“探索性阅读/搜索”特别容易污染主上下文？  
+      2) subagent 的隔离到底隔离了什么（消息？文件？进程？）  
+      3) “只返回摘要”这种压缩回传，工程上带来哪些收益与代价？  
+      4) 为什么要禁止子智能体递归生成？为什么要设置最大迭代次数？
 
   - type: md
-    title: 讲义（问题 → 方案 → 原理 → 代码）
+    title: 概念对齐：上下文隔离 ≠ 进程隔离
     body: |
-      > 子智能体使用全新的消息列表运行, 与父智能体共享文件系统, 仅返回摘要 -- 保持父上下文的整洁。
-      
-      ## 问题
-      
-      随着智能体工作, 它的消息数组不断增长。每次工具调用、每次文件读取、每次 bash 输出都在累积。20-30 次工具调用后, 上下文窗口充满了无关的历史。为了回答一个简单问题而读取的 500 行文件, 会永久占据上下文中的 500 行空间。
-      
-      这对探索性任务尤其糟糕。"这个项目用了什么测试框架?" 可能需要读取 5 个文件, 但父智能体的历史中并不需要这 5 个文件的全部内容 -- 它只需要答案: "pytest, 使用 conftest.py 配置。"
-      
-      在本课程里, 一个实用解法是 fresh `messages[]` 隔离: 以 `messages=[]` 启动一个子智能体。子智能体进行探索、读取文件、运行命令。完成后, 只有最终的文本响应返回给父智能体。子智能体的全部消息历史被丢弃。
-      
-      ## 解决方案
-      
-      ```
-      Parent agent                     Subagent
-      +------------------+             +------------------+
-      | messages=[...]   |             | messages=[]      | <-- fresh
-      |                  |  dispatch   |                  |
-      | tool: task       | ---------->| while tool_use:  |
-      |   prompt="..."   |            |   call tools     |
-      |                  |  summary   |   append results |
-      |   result = "..." | <--------- | return last text |
-      +------------------+             +------------------+
-                |
-      Parent context stays clean.
-      Subagent context is discarded.
-      ```
-      
-      ## 工作原理
-      
-      1. 父智能体拥有一个 `task` 工具用于触发子智能体的生成。子智能体获得除 `task` 外的所有基础工具 (不允许递归生成)。
-      
-      ```python
-      PARENT_TOOLS = CHILD_TOOLS + [
-          {"name": "task",
-           "description": "Spawn a subagent with fresh context.",
-           "input_schema": {
-               "type": "object",
-               "properties": {
-                   "prompt": {"type": "string"},
-                   "description": {"type": "string"},
-               },
-               "required": ["prompt"],
-           }},
-      ]
-      ```
-      
-      2. 子智能体以全新的消息列表启动, 仅包含委派的 prompt。它共享相同的文件系统。
-      
-      ```python
-      def run_subagent(prompt: str) -> str:
-          sub_messages = [{"role": "user", "content": prompt}]
-          for _ in range(30):  # safety limit
-              response = client.messages.create(
-                  model=MODEL, system=SUBAGENT_SYSTEM,
-                  messages=sub_messages,
-                  tools=CHILD_TOOLS, max_tokens=8000,
-              )
-              sub_messages.append({
-                  "role": "assistant", "content": response.content
-              })
-              if response.stop_reason != "tool_use":
-                  break
-              # execute tools, append results...
-      ```
-      
-      3. 只有最终文本返回给父智能体。子智能体 30+ 次工具调用的历史被丢弃。
-      
-      ```python
-          return "".join(
-              b.text for b in response.content if hasattr(b, "text")
-          ) or "(no summary)"
-      ```
-      
-      4. 父智能体将此摘要作为普通的 tool_result 接收。
-      
-      ```python
-      if block.name == "task":
-          output = run_subagent(block.input["prompt"])
-      results.append({
-          "type": "tool_result",
-          "tool_use_id": block.id,
-          "content": str(output),
-      })
-      ```
-      
-      ## 核心代码
-      
-      子智能体函数 (来自 `agents/s04_subagent.py`, 第 110-128 行):
-      
-      ```python
-      def run_subagent(prompt: str) -> str:
-          sub_messages = [{"role": "user", "content": prompt}]
-          for _ in range(30):
-              response = client.messages.create(
-                  model=MODEL, system=SUBAGENT_SYSTEM,
-                  messages=sub_messages,
-                  tools=CHILD_TOOLS, max_tokens=8000,
-              )
-              sub_messages.append({"role": "assistant",
-                                   "content": response.content})
-              if response.stop_reason != "tool_use":
-                  break
-              results = []
-              for block in response.content:
-                  if block.type == "tool_use":
-                      handler = TOOL_HANDLERS.get(block.name)
-                      output = handler(**block.input)
-                      results.append({"type": "tool_result",
-                          "tool_use_id": block.id,
-                          "content": str(output)[:50000]})
-              sub_messages.append({"role": "user", "content": results})
-          return "".join(
-              b.text for b in response.content if hasattr(b, "text")
-          ) or "(no summary)"
-      ```
-      
-      ## 相对 s03 的变更
-      
-      | 组件           | 之前 (s03)       | 之后 (s04)                    |
-      |----------------|------------------|---------------------------|
-      | Tools          | 5                | 5 (基础) + task (仅父端)  |
-      | 上下文         | 单一共享         | 父 + 子隔离               |
-      | Subagent       | 无               | `run_subagent()` 函数     |
-      | 返回值         | 不适用           | 仅摘要文本                |
-      
-      ## 设计原理
-      
-      在本节中, fresh `messages[]` 隔离是一个近似实现上下文隔离的实用办法。全新的 `messages[]` 意味着子智能体从不携带父级历史开始。代价是通信开销 -- 结果必须压缩回父级, 丢失细节。这是消息历史隔离策略, 不是操作系统进程隔离本身。限制子智能体深度 (不允许递归生成) 防止无限资源消耗, 最大迭代次数确保失控的子任务能终止。
-      
-      ## 试一试
-      
-      ```sh
-      cd learn-claude-code
+      这节课里，“隔离”主要指 **对话历史的隔离**，而不是操作系统意义上的隔离。
+
+      **消息隔离（conversation isolation）**  
+      子智能体从 `messages=[]`（准确说是只包含一条委派 prompt）开始运行。它读文件、跑命令产生的中间输出只存在于它自己的 messages 里。
+      当它结束时，这段历史会被丢弃——父智能体看不到全过程，只收到一个压缩后的结果。
+
+      **共享的部分（shared state）**  
+      子智能体和父智能体仍共享同一个工作目录（文件系统）。也就是说，子智能体写文件、修改文件，父智能体是能看到这些变化的。
+
+      **进程隔离（process isolation / sandbox）**  
+      如果你要把“写文件/执行命令”的风险隔离到一个真正受控的环境，通常需要进程/容器/虚拟机级别的隔离。
+      本课的 subagent 并不提供这种安全隔离；它解决的是“上下文容量与注意力”的问题。
+
+  - type: md
+    title: 机制拆解：task 工具如何“生成”一个子智能体？
+    body: |
+      s04 的关键改动，是给父智能体新增一个工具：`task`。
+
+      从父智能体视角看，`task` 是一个普通工具调用：
+      - 输入：`prompt`（让子智能体做什么），可选 `description`（人类可读的短描述）  
+      - 输出：一段文本摘要
+
+      但在 harness 侧，这个工具的实现不是读文件/写文件，而是“启动另一个 loop”：
+      - 创建一份新的 `sub_messages`，只放入委派 prompt  
+      - 用一套子智能体 system prompt（强调完成任务后总结）  
+      - 允许子智能体使用一组基础工具（bash/read/write/edit），但**不允许**使用 `task`（避免递归生成）  
+      - 循环执行工具直到停止或达到安全上限（示例里最多 30 轮）
+
+      子智能体结束后，系统只把最终输出里的文本拼起来作为 summary 返回给父智能体。
+
+  - type: md
+    title: 为什么“只回传摘要”能保持主上下文干净？
+    body: |
+      把探索放进子智能体，有两个直接效果：
+
+      **1) 主上下文不再永久保存探索痕迹**  
+      以前父智能体可能需要把 500 行文件内容读进 messages 才能得到一个结论；现在这些 500 行只存在于子智能体的临时上下文里。
+
+      **2) 结果以“压缩状态增量”回到主线**  
+      父智能体收到的是一段摘要，它更接近“可用于下一步决策的信息”，而不是完整过程。
+      这会让主上下文更像“项目进展记录”，而不是“所有探索日志的大杂烩”。
+
+      但代价也很明确：  
+      - 你失去了细粒度可追溯性（摘要可能遗漏证据或误读）；  
+      - 如果父智能体需要细节，往往只能再次委派或让子智能体带上更严格的输出格式；  
+      - 子智能体自身也会消耗 token 与时间，只是把消耗从主线程迁移到了子线程。
+
+  - type: md
+    title: 两个安全阀：禁止递归与最大步数上限
+    body: |
+      代码里有两个很“工程味”的保护：
+
+      **1) 子智能体工具集里没有 task**  
+      这等价于禁止递归生成子智能体，避免出现无限分叉（以及不可控的成本/延迟）。
+
+      **2) 子智能体 loop 有最大迭代次数**  
+      示例里最多 30 轮。如果子智能体陷入“反复尝试但没有进展”的循环，这个上限能让它终止并把问题暴露出来。
+
+      这两个阀门不是为了“让模型更聪明”，而是为了让系统在不可预测行为下仍有边界。
+
+  - type: md
+    title: 动手练习：把“探索任务”交给 subagent
+    body: |
+      1) 运行：
+
+      ```bash
       python agents/s04_subagent.py
       ```
-      
-      可以尝试的提示:
-      
-      1. `Use a subtask to find what testing framework this project uses`
-      2. `Delegate: read all .py files and summarize what each one does`
-      3. `Use a task to create a new module, then verify it from here`
+
+      2) 试三个典型委派（任选其一）：
+      - 让 subagent 找出项目使用的测试框架，并给出 1-2 个证据线索（例如文件名/关键词）。  
+      - 让 subagent 浏览 `agents/` 下的脚本，并给出“每个脚本新增的机制一句话”。  
+      - 让 subagent 创建一个小模块（写文件），父智能体再用 read_file 验证结果是否存在。
+
+      3) 微改动（建议）：
+      - 让 subagent 的输出带上“引用”：例如在摘要里包含 `file_path:line_range` 或关键命令输出片段，提升可复核性。  
+      - 或者让 subagent 输出一个 JSON 结构（结论/证据/不确定点），观察父智能体合并信息是否更容易。
 
   - type: md
-    title: 动手练习（本地运行）
+    title: 原文阅读
     body: |
-      如果你还没有配置运行环境，请先完成《导论》里的准备步骤。
-      
-      本课建议最小实践：
-      
-      ```sh
-      python agents/s04_subagent.py
-      ```
-      
-      你可以把本课当成一个小实验：
-      
-      1) 先按文档里的 `试一试` 跑通一次（确保能复现）。
-      2) 再做一次**微改动**（例如：添加一个新的提示、改一个阈值、加一个危险命令拦截），观察行为差异。
-      
-      检查点（你应该能回答）：
-      
-      - 这节课新增的“机制”是什么？它解决了什么具体失败模式？
-      - 这套机制的状态/真实来源是什么（内存、messages[]、文件系统、线程）？
+      - 日期：2026-02-26（仓库快照）
+      - 来源：shareAI-lab/learn-claude-code（MIT，commit: ff8acd8）
+      - 建议：对照阅读 `PARENT_TOOLS/CHILD_TOOLS` 的差异、`run_subagent()` 如何创建 fresh messages、以及“只回传最终文本”的返回策略；同时留意 30 轮上限与“不允许递归”这两个边界条件。
+
+  - type: url
+    title: "上游文档：s04 Subagent"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/docs/zh/s04-subagent.md
+    mode: open
+
+  - type: url
+    title: "上游代码：agents/s04_subagent.py"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/agents/s04_subagent.py
+    mode: open
 
   - type: md
-    layout: inline
+    title: 回到开头的问题：一些提示（Hints）
     body: |
-      本课在上游仓库中的位置：
-      
-      - 文档：`docs/zh/s04-subagent.md`
-      - 代码：`agents/s04_subagent.py`
-      
-      上游仓库：`https://github.com/shareAI-lab/learn-claude-code`
+      1) 探索性任务污染主上下文，是因为它产出大量“当时需要、之后不需要”的中间观测（长文件、长日志、失败尝试）。  
+      2) 这节课的隔离主要是消息隔离：子智能体有自己的 messages 历史，但仍共享文件系统；它不是安全沙箱。  
+      3) 摘要回传的收益是主上下文更干净、成本更可控；代价是细节丢失与可追溯性下降，需要用更严格的输出契约弥补。  
+      4) 禁止递归与步数上限，是为了在不可控行为下给系统设边界，避免无限分叉与无限循环。

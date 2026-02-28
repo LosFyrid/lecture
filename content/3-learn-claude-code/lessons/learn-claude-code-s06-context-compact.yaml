@@ -1,215 +1,162 @@
 id: learn-claude-code-s06-context-compact
-title: "s06 Compact：策略性遗忘（上下文压缩）"
+title: "第 6 课：Context Compact——分层压缩，让长任务不断档"
 summary: |
-  面对长对话与大上下文成本，引入自动压缩（compact）：保留关键状态，遗忘细节，把会话做成“可无限延长”。
+  长任务会把 messages[] 撑爆：工具输出越多，上下文越长，成本越高、行为越漂。本课实现一个三层压缩管线：
+  micro-compact 静默清理旧 tool_result，auto-compact 接近阈值时自动摘要，manual compact 允许模型按需触发压缩。
 items:
   - type: md
-    title: 学习目标
+    title: 导入：本课要回答的问题
     body: |
-      - 理解为什么必须 compact：token 成本、注意力稀释、指令漂移。
-      - 掌握 compact 的目标：保留不变约束/当前任务状态/必要产物，而不是保留全部历史。
-      - 能运行 `agents/s06_context_compact.py` 并观察压缩前后 messages 的变化。
+      当你让 agent 在一个稍大的代码库上工作时，它的工作方式往往是：
+      读文件 → 跑测试 → 看到错误 → 再读文件 → 再改 → 再跑……
+      每一步都会把新的输出塞进 messages[]。很快你会遇到两类问题：
 
-      建议：阅读正文时，把注意力放在“这一课只新增了哪一个机制”。
+      - **硬失败**：上下文超过模型上限，API 调用直接报错。  
+      - **软退化**：还没到上限，但模型开始变慢、变“健忘”、开始忽略早期约束。
+
+      本课要回答：
+
+      1) 为什么“把所有工具输出都保留”会让长任务不可持续？  
+      2) 压缩到底压缩的是什么？哪些信息适合被遗忘，哪些必须保留？  
+      3) micro / auto / manual 三层分别解决什么问题？为什么需要分层？  
+      4) 把完整历史写入磁盘 transcript，有什么工程意义？
 
   - type: md
-    title: 讲义（问题 → 方案 → 原理 → 代码）
+    title: 概念对齐：context window、token 预算与“软退化”
     body: |
-      > 三层压缩管道让智能体可以无限期工作: 策略性地遗忘旧的工具结果, token 超过阈值时自动摘要, 以及支持手动触发压缩。
-      
-      ## 问题
-      
-      上下文窗口是有限的。工具调用积累到足够多时, 消息数组会超过模型的上下文限制, API 调用直接失败。即使在到达硬限制之前, 性能也会下降: 模型变慢、准确率降低, 开始忽略早期消息。
-      
-      200,000 token 的上下文窗口听起来很大, 但一次 `read_file` 读取 1000 行源文件就消耗约 4000 token。读取 30 个文件、运行 20 条 bash 命令后, 你就已经用掉 100,000+ token 了。没有某种压缩机制, 智能体无法在大型代码库上工作。
-      
-      三层管道以递增的激进程度来应对这个问题:
-      第一层 (micro-compact) 每轮静默替换旧的工具结果。
-      第二层 (auto-compact) 在 token 超过阈值时触发完整摘要。
-      第三层 (manual compact) 让模型自己触发压缩。
-      
-      教学简化说明: 这里的 token 估算使用粗略的 字符数/4 启发式方法。生产系统使用专业的 tokenizer 库进行精确计数。
-      
-      ## 解决方案
-      
-      ```
-      Every turn:
-      +------------------+
-      | Tool call result |
-      +------------------+
-              |
-              v
-      [Layer 1: micro_compact]        (silent, every turn)
-        Replace tool_result > 3 turns old
-        with "[Previous: used {tool_name}]"
-              |
-              v
-      [Check: tokens > 50000?]
-         |               |
-         no              yes
-         |               |
-         v               v
-      continue    [Layer 2: auto_compact]
-                    Save transcript to .transcripts/
-                    LLM summarizes conversation.
-                    Replace all messages with [summary].
-                          |
-                          v
-                  [Layer 3: compact tool]
-                    Model calls compact explicitly.
-                    Same summarization as auto_compact.
-      ```
-      
-      ## 工作原理
-      
-      1. **第一层 -- micro_compact**: 每次 LLM 调用前, 找到最近 3 条之前的所有 tool_result 条目, 替换其内容。
-      
-      ```python
-      def micro_compact(messages: list) -> list:
-          tool_results = []
-          for i, msg in enumerate(messages):
-              if msg["role"] == "user" and isinstance(msg.get("content"), list):
-                  for j, part in enumerate(msg["content"]):
-                      if isinstance(part, dict) and part.get("type") == "tool_result":
-                          tool_results.append((i, j, part))
-          if len(tool_results) <= KEEP_RECENT:
-              return messages
-          to_clear = tool_results[:-KEEP_RECENT]
-          for _, _, part in to_clear:
-              if len(part.get("content", "")) > 100:
-                  tool_id = part.get("tool_use_id", "")
-                  tool_name = tool_name_map.get(tool_id, "unknown")
-                  part["content"] = f"[Previous: used {tool_name}]"
-          return messages
-      ```
-      
-      2. **第二层 -- auto_compact**: 当估算 token 超过 50,000 时, 保存完整对话记录并请求 LLM 进行摘要。
-      
-      ```python
-      def auto_compact(messages: list) -> list:
-          TRANSCRIPT_DIR.mkdir(exist_ok=True)
-          transcript_path = TRANSCRIPT_DIR / f"transcript_{int(time.time())}.jsonl"
-          with open(transcript_path, "w") as f:
-              for msg in messages:
-                  f.write(json.dumps(msg, default=str) + "\n")
-          response = client.messages.create(
-              model=MODEL,
-              messages=[{"role": "user", "content":
-                  "Summarize this conversation for continuity..."
-                  + json.dumps(messages, default=str)[:80000]}],
-              max_tokens=2000,
-          )
-          summary = response.content[0].text
-          return [
-              {"role": "user", "content": f"[Compressed]\n\n{summary}"},
-              {"role": "assistant", "content": "Understood. Continuing."},
-          ]
-      ```
-      
-      3. **第三层 -- manual compact**: `compact` 工具按需触发相同的摘要机制。
-      
-      ```python
-      if manual_compact:
-          messages[:] = auto_compact(messages)
-      ```
-      
-      4. Agent loop 整合了全部三层。
-      
-      ```python
-      def agent_loop(messages: list):
-          while True:
-              micro_compact(messages)
-              if estimate_tokens(messages) > THRESHOLD:
-                  messages[:] = auto_compact(messages)
-              response = client.messages.create(...)
-              # ... tool execution ...
-              if manual_compact:
-                  messages[:] = auto_compact(messages)
-      ```
-      
-      ## 核心代码
-      
-      三层管道 (来自 `agents/s06_context_compact.py`, 第 67-93 行和第 189-223 行):
-      
-      ```python
-      THRESHOLD = 50000
-      KEEP_RECENT = 3
-      
-      def micro_compact(messages):
-          # Replace old tool results with placeholders
-          ...
-      
-      def auto_compact(messages):
-          # Save transcript, LLM summarize, replace messages
-          ...
-      
-      def agent_loop(messages):
-          while True:
-              micro_compact(messages)          # Layer 1
-              if estimate_tokens(messages) > THRESHOLD:
-                  messages[:] = auto_compact(messages)  # Layer 2
-              response = client.messages.create(...)
-              # ...
-              if manual_compact:
-                  messages[:] = auto_compact(messages)  # Layer 3
-      ```
-      
-      ## 相对 s05 的变更
-      
-      | 组件           | 之前 (s05)       | 之后 (s06)                     |
-      |----------------|------------------|----------------------------|
-      | Tools          | 5                | 5 (基础 + compact)         |
-      | 上下文管理     | 无               | 三层压缩                   |
-      | Micro-compact  | 无               | 旧结果 -> 占位符           |
-      | Auto-compact   | 无               | token 阈值触发             |
-      | Manual compact | 无               | `compact` 工具             |
-      | Transcripts    | 无               | 保存到 .transcripts/       |
-      
-      ## 设计原理
-      
-      上下文窗口有限, 但智能体会话可以无限。三层压缩在不同粒度上解决这个问题: micro-compact (替换旧工具输出), auto-compact (接近限制时 LLM 摘要), manual compact (用户触发)。关键洞察是遗忘是特性而非缺陷 -- 它使无限会话成为可能。转录文件将完整历史保存在磁盘上, 因此没有任何东西真正丢失, 只是从活跃上下文中移出。分层方法让每一层在各自的粒度上独立运作, 从静默的逐轮清理到完整的对话重置。
-      
-      ## 试一试
-      
-      ```sh
-      cd learn-claude-code
+      **context window（上下文窗口）**  
+      指一次模型调用能处理的输入 + 输出 token 总量上限。超过上限就会硬失败。
+
+      **token 预算（token budget）**  
+      指你愿意为一个任务花多少钱、等多久。即使没超过上限，token 过大也会带来延迟与成本上升。
+
+      **软退化（soft degradation）**  
+      指在长上下文里常见的一类现象：模型仍能工作，但更容易：
+      - 忽略早期提示（目标/约束被稀释）  
+      - 被最近的噪声牵着走（例如长日志、长文件片段）  
+      - 在“看似相关”的片段间产生冲突或混淆
+
+      因此，长任务的关键不是“无限加上下文”，而是让上下文随任务推进被持续整理。
+
+  - type: md
+    title: 三层压缩管线：从“静默清理”到“对话重置”
+    body: |
+      这节课把压缩做成三层，按“激进程度”递增：
+
+      **Layer 1：micro-compact（每轮静默执行）**  
+      目标：不改变对话结构，只把很旧、很长的 tool_result 替换成占位符，避免它们永久占用上下文。
+      例如把一段旧的 read_file 输出替换成：`[Previous: used read_file]`。
+
+      **Layer 2：auto-compact（超过阈值自动触发）**  
+      目标：在接近上下文上限之前做一次“对话级摘要”，把全量 messages 压缩成一段 continuity summary，
+      然后用这段 summary 作为新的起点继续工作。
+
+      **Layer 3：manual compact（模型/用户按需触发）**  
+      目标：允许模型在它“感觉到上下文开始混乱”时主动触发压缩，而不是等系统阈值触发。
+
+      你可以把它类比成：垃圾回收（micro）+ 快照压缩（auto）+ 手动清理（manual）。
+
+  - type: md
+    title: Layer 1（micro）：替换旧 tool_result，而不是删掉一切
+    body: |
+      micro-compact 的关键策略是：**保留最近的少量工具结果细节，其余用可识别的占位符替换**。
+
+      在实现里有两个参数：
+      - `KEEP_RECENT = 3`：保留最近 3 个 tool_result 的完整内容  
+      - “长度阈值”：只有当 tool_result 内容超过一定长度（示例里 > 100 字符）才会被替换
+
+      为什么不是“删掉旧结果”？
+      - 占位符仍然能告诉模型“发生过一次工具调用”，并且工具名是什么；  
+      - 这让摘要与回放更容易：你知道这里曾经读过文件/跑过命令，只是细节被移出了活跃上下文。
+
+      另一个容易忽略的工程点是：为了生成占位符中的 `{tool_name}`，代码需要从 assistant 的 tool_use 块里反向建立 `tool_use_id -> tool_name` 的映射。
+      这就是“可关联性”在长任务里的价值：没有 id，你很难把结果和调用对上。
+
+  - type: md
+    title: Layer 2（auto）：保存 transcript，再让模型写 continuity summary
+    body: |
+      当估算 token 超过阈值（示例里 `THRESHOLD = 50000`）时，auto-compact 做两件事：
+
+      **1) 把完整历史写入磁盘**  
+      保存为 `.transcripts/transcript_<timestamp>.jsonl`。这一步的意义是：  
+      “遗忘”发生在活跃上下文里，但系统仍保留可追溯的全量记录，便于你后续调试或回放。
+
+      **2) 调用模型做摘要，并重置 messages**  
+      代码会把对话序列化成 JSON（截断到一定长度），要求模型输出一个摘要，包含：
+      - 已完成了什么  
+      - 当前状态是什么  
+      - 做过哪些关键决策
+
+      然后系统用两条新消息替换全部历史：  
+      - user：带着 “[Conversation compressed …] + summary”  
+      - assistant：确认“我理解了，将继续”
+
+      这等价于把长对话“折叠”为一个更短的状态描述，再继续推进任务。
+
+  - type: md
+    title: Layer 3（manual）：把“压缩”做成一个工具
+    body: |
+      manual compact 的设计点在于：让“我要压缩一下”变成模型可以触发的动作。
+
+      在实现里，这个动作体现为一个工具：`compact`。
+      当模型调用该工具时，系统会在本轮结束后立即运行同样的 `auto_compact()` 流程（保存 transcript + 摘要 + 重置 messages）。
+
+      这种设计有一个可迁移的意义：压缩不必总是由系统阈值驱动，它也可以是模型的自我调节行为。
+      在更复杂系统里，你还可以把 `focus` 之类的字段用于指导摘要“保留哪些状态信息”。
+
+  - type: md
+    title: 重要但容易误读的细节：token 估算是启发式
+    body: |
+      这份实现用 `len(str(messages)) // 4` 估算 token。
+      这不是精确计数，只是为了教学与演示。
+
+      在真实系统里，如果你用这个启发式直接做预算与门控，可能会出现两类偏差：
+      - 对不同语言/不同格式的文本估算不稳定（JSON 往往更“吃 token”）  
+      - 对模型的真实上限缺乏精确对齐（可能过早压缩，也可能压缩不及时）
+
+      但启发式依然能说明关键思想：**你需要把“上下文管理”做成工程机制，而不是靠运气**。
+
+  - type: md
+    title: 动手练习：触发一次 auto-compact，并检查 transcript
+    body: |
+      1) 运行：
+
+      ```bash
       python agents/s06_context_compact.py
       ```
-      
-      可以尝试的提示:
-      
-      1. `Read every Python file in the agents/ directory one by one`
-         (观察 micro-compact 替换旧的结果)
-      2. `Keep reading files until compression triggers automatically`
-      3. `Use the compact tool to manually compress the conversation`
+
+      2) 让它产生大量 tool_result（示例思路）：
+      - “Read every Python file in agents/ directory one by one, then summarize what you saw.”
+
+      3) 观察两类现象：
+      - micro-compact 是否开始把旧 tool_result 替换为占位符？  
+      - 当 token 估算超过阈值时，是否出现 “[auto_compact triggered]” 并生成 `.transcripts/transcript_*.jsonl`？
+
+      4) 微改动（任选其一）：
+      - 把 `THRESHOLD` 改小（例如 5000），更容易触发 auto-compact；  
+      - 修改摘要提示词，让它额外保留“当前正在修改哪些文件、下一步要跑哪些测试”；观察摘要质量如何影响后续行为。
 
   - type: md
-    title: 动手练习（本地运行）
+    title: 原文阅读
     body: |
-      如果你还没有配置运行环境，请先完成《导论》里的准备步骤。
-      
-      本课建议最小实践：
-      
-      ```sh
-      python agents/s06_context_compact.py
-      ```
-      
-      你可以把本课当成一个小实验：
-      
-      1) 先按文档里的 `试一试` 跑通一次（确保能复现）。
-      2) 再做一次**微改动**（例如：添加一个新的提示、改一个阈值、加一个危险命令拦截），观察行为差异。
-      
-      检查点（你应该能回答）：
-      
-      - 这节课新增的“机制”是什么？它解决了什么具体失败模式？
-      - 这套机制的状态/真实来源是什么（内存、messages[]、文件系统、线程）？
+      - 日期：2026-02-26（仓库快照）
+      - 来源：shareAI-lab/learn-claude-code（MIT，commit: ff8acd8）
+      - 建议：对照阅读 micro_compact 如何定位并替换旧 tool_result、auto_compact 如何保存 transcript 并重置 messages；同时思考：哪些“关键状态”需要被摘要显式保留，才能让长任务不断档。
+
+  - type: url
+    title: "上游文档：s06 Context Compact"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/docs/zh/s06-context-compact.md
+    mode: open
+
+  - type: url
+    title: "上游代码：agents/s06_context_compact.py"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/agents/s06_context_compact.py
+    mode: open
 
   - type: md
-    layout: inline
+    title: 回到开头的问题：一些提示（Hints）
     body: |
-      本课在上游仓库中的位置：
-      
-      - 文档：`docs/zh/s06-context-compact.md`
-      - 代码：`agents/s06_context_compact.py`
-      
-      上游仓库：`https://github.com/shareAI-lab/learn-claude-code`
+      1) 长任务不可持续的根因不是“任务太难”，而是上下文累积：工具输出把注意力预算占满，最终导致硬失败或软退化。  
+      2) 压缩压的是“中间观测的细节”，不是压掉一切：micro-compact 用占位符保留“发生过什么”，同时释放 token。  
+      3) 分层的原因是不同粒度的问题需要不同力度：日常清理（micro）与必要时的对话重置（auto/manual）是两种机制。  
+      4) transcript 的意义在于把“活跃上下文的遗忘”与“系统可追溯性”分离：你可以让模型忘，但系统不必真的丢历史。

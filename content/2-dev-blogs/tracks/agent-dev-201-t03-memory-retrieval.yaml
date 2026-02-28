@@ -1,18 +1,24 @@
 id: agent-dev-201-t03-memory-retrieval
-title: "Memory & Retrieval：长期记忆与检索选型"
+title: "记忆与检索：长期记忆、召回与检索选型"
 description: |
-  学习长期记忆与检索策略的设计权衡：如何写入/召回/更新 memory，
-  以及在向量检索与 filesystem/grep 工具之间做可解释的选型。
+  对 agent 来说，“记忆”不只是把东西塞进向量库；它更像一套可演化的数据产品：
+  你需要决定**写入什么**（什么值得长期保存）、**如何召回**（什么时候检索、检索多少、如何与当前上下文融合），以及**如何更新**（纠错、去重、版本化）。
+
+  本 track 围绕两个常见工程困惑展开：
+  1) 向量检索几乎成了默认选项，但在代码/文档类任务里，filesystem + grep 这类“可解释的探索工具”什么时候反而更可靠？  
+  2) 当任务变成“读很多材料再写文档”时，模型可能陷入过度推理与无效展开：怎样通过记忆/检索与写作策略，减少这种失败模式？
+
+  学习建议：把这条 track 视为“上下文工程的外延”。当你开始做长任务，你会发现很多信息既不适合常驻在 context window，也不适合完全丢弃；记忆与检索就是在“成本、可解释性与召回质量”之间做工程化折中。
 modules:
   - id: memory-systems
-    title: "长期记忆系统：写入 / 召回 / 更新"
+    title: "第 1 章：长期记忆系统——写入、召回与更新"
     lessons:
       - devblog-2026-02-22-how-we-built-agent-builders-memory-system
   - id: retrieval-tradeoffs
-    title: "检索选型：向量检索 vs 文件系统探索"
+    title: "第 2 章：检索选型——向量检索 vs 文件系统探索"
     lessons:
       - devblog-2026-01-13-vector-search-vs-filesystem-tools-2026-benchmark
   - id: reasoning-failure-docs
-    title: "文档任务中的推理失败：过度推理的代价"
+    title: "第 3 章：文档任务的推理失败——过度推理的代价"
     lessons:
       - devblog-2026-02-19-the-cost-of-overthinking-why-reasoning-models-fa

@@ -1,198 +1,179 @@
 id: learn-claude-code-s05-skill-loading
-title: "s05 Skills：按需加载，而非预装"
+title: "第 5 课：Skill Loading——两层注入，让知识按需进入上下文"
 summary: |
-  通过读取 SKILL.md 并用 tool_result 注入“临时知识”，实现按需加载技能，避免把所有知识塞进 system prompt。
+  直接把所有工作流/规范塞进 system prompt，会造成注意力稀释与成本膨胀。本课用“两层技能注入”：
+  第一层在 system prompt 里只放技能清单与短描述；第二层通过 load_skill 工具按需把完整技能内容注入到 tool_result。
 items:
   - type: md
-    title: 学习目标
+    title: 导入：本课要回答的问题
     body: |
-      - 理解 skill 的定位：它不是工具本身，而是工具的“用法与约束说明书”。
-      - 掌握按需加载的好处：更小的上下文、更少的提示污染、更强的可维护性。
-      - 能运行 `agents/s05_skill_loading.py` 并观察 skill 文本如何进入对话。
+      当你把 agent 用在更多真实工作流里，你会自然地想给它“规矩”：git 提交流程、测试约定、代码审查清单、项目架构说明……
+      最直觉的做法是把这些内容全部写进 system prompt。
 
-      建议：阅读正文时，把注意力放在“这一课只新增了哪一个机制”。
+      但很快你会遇到两个副作用：
+      - system prompt 变得很长，模型对其中部分规则开始“视而不见”；  
+      - 其中大多数知识在当前任务里并不相关，却依然占用上下文与成本。
+
+      本课要回答：
+
+      1) 为什么 system prompt 会“膨胀失效”？这和注意力预算有什么关系？  
+      2) 怎样让模型“知道有哪些技能可用”，但只在需要时才加载细节？  
+      3) 两层注入的边界在哪里：什么该放在 Layer 1，什么该放在 Layer 2？  
+      4) 用 tool_result 注入长文本时，怎样降低“污染上下文”的风险？
 
   - type: md
-    title: 讲义（问题 → 方案 → 原理 → 代码）
+    title: 概念对齐：Skill 是什么？它和工具、记忆有什么关系？
     body: |
-      > 两层技能注入避免了系统提示膨胀: 在系统提示中放技能名称 (低成本), 在 tool_result 中按需放入完整技能内容。
-      
-      ## 问题
-      
-      智能体需要针对不同领域遵循特定的工作流: git 约定、测试模式、代码审查清单。简单粗暴的做法是把所有内容都塞进系统提示。但系统提示的有效注意力是有限的 -- 文本太多, 模型就会开始忽略其中一部分。
-      
-      如果你有 10 个技能, 每个 2000 token, 那就是 20,000 token 的系统提示。模型关注开头和结尾, 但会略过中间部分。更糟糕的是, 这些技能中大部分与当前任务无关。文件编辑任务不需要 git 工作流说明。
-      
-      两层方案解决了这个问题: 第一层在系统提示中放入简短的技能描述 (每个技能约 100 token)。第二层只在模型调用 `load_skill` 时, 才将完整的技能内容加载到 tool_result 中。模型知道有哪些技能可用 (低成本), 按需加载它们 (只在相关时)。
-      
-      ## 解决方案
-      
+      **Skill（技能）**  
+      在本课程语境里，skill 更像一段“可复用的工作法/知识块”：它通常是 Markdown 文档（带元数据），描述你希望 agent 在某类任务里遵循的流程与检查点。
+
+      **Skill vs Tool（知识 vs 能力）**  
+      - tool 是“能做什么动作”（读文件、写文件、运行命令）。  
+      - skill 是“该怎么做”（流程、规范、清单、偏好）。
+
+      **Skill vs Memory（按需知识 vs 长期记忆）**  
+      - memory 更像系统从历史中积累的事实/偏好（可能会变化、会更新）。  
+      - skill 更像人为编写的、相对稳定的“作业指导书”（也可以版本化）。
+
+      这节课的重点是：把 skill 当作一种**可加载的知识模块**，而不是一段永远常驻的提示词。
+
+  - type: md
+    title: 为什么“全塞进 system prompt”会出问题？
+    body: |
+      system prompt 并不是“越长越强”的地方。
+
+      从工程角度看，长 system prompt 至少带来三类问题：
+
+      **1) 注意力稀释**  
+      规则越多，模型越难在当前任务里判断“哪条规则最重要”，于是会出现选择性忽略。
+
+      **2) 成本与延迟**  
+      system prompt 是每一轮调用都会携带的输入。把大量不相关内容常驻，会让每轮 token 成本上升。
+
+      **3) 相关性反而下降**  
+      你往往只需要其中一小段（例如 code review 清单），但它被埋在大量无关内容里。
+
+      因此，与其把所有知识前置，不如让模型“先看到目录”，需要时再翻到正文。
+
+  - type: md
+    title: 两层注入：目录常驻，正文按需
+    body: |
+      这节课的核心结构是“两层注入”：
+
+      **Layer 1（常驻、低成本）**  
+      在 system prompt 里只放技能清单：技能名 + 简短描述（可带 tags）。
+      目标是让模型知道“有哪些选项”，但不强迫它每轮都阅读技能全文。
+
+      **Layer 2（按需、高成本）**  
+      提供一个 `load_skill` 工具。当模型判断某个技能相关时，它调用该工具。
+      工具返回完整技能正文，并用明确的边界标签包裹（示例里使用 `<skill name="..."> ... </skill>`）。
+
+      你可以把这理解成软件工程里常见的 **lazy loading（懒加载）**：先加载索引，只有真正访问时才加载内容。
+
+  - type: md
+    title: 代码走读：SkillLoader 做了什么？
+    body: |
+      `agents/s05_skill_loading.py` 里有一个 `SkillLoader`，主要做三件事：
+
+      1) **加载技能文件**：遍历某个目录下的 `*.md` 文件，把每个文件当作一个 skill。  
+      2) **解析元数据**：用 frontmatter（`--- ... ---`）解析出 `description/tags` 等字段。  
+      3) **提供两种视图**：  
+         - `get_descriptions()`：用于 Layer 1，把每个 skill 的短描述拼成清单；  
+         - `get_content(name)`：用于 Layer 2，返回完整正文并加上边界标签。
+
+      注意一个容易忽略的细节：当 skill 不存在时，返回的错误信息会列出可用 skill 名称。
+      这能帮助模型“纠正拼写”和“重新选择”，也让调试更容易。
+
+  - type: md
+    title: 一个实践问题：.skills 目录与 skill 组织方式
+    body: |
+      在这份教学实现里，脚本默认从工作目录下的 `.skills/` 读取 `*.md`。
+      如果目录不存在，技能清单会显示为 “(no skills available)”。
+
+      你在 clone 上游仓库后，可能会注意到：仓库里自带的是 `skills/` 目录（通常是 `skills/<name>/SKILL.md` 这种分目录结构），而不是 `.skills/`。
+      这不是“概念冲突”，而是**教学代码为了简化读取逻辑**做的一种文件组织取舍：s05 的脚本只需要演示“两层注入”的机制，所以用平铺的 `.skills/*.md` 来降低实现复杂度。
+
+      为了复现本课，你可以用两种等价做法（选一种即可）：
+
+      - **做法 A（更推荐，教学更清晰）**：新建 `.skills/`，手写 1-2 个很短的 skill，让你能清楚观察“目录常驻 + 正文按需加载”的行为变化。  
+      - **做法 B（利用仓库自带内容）**：把 `skills/<name>/SKILL.md` 复制并重命名到 `.skills/<name>.md`（或做一个软链接）。  
+        只要文件包含 YAML frontmatter（`--- ... ---`），SkillLoader 就能解析出 description/tags 并按需注入正文。
+
+      这提醒了一个可迁移的工程点：skill 的“存放位置与组织方式”本质上是产品设计的一部分。
+      你可以用很多等价方案：
+      - 平铺文件（`.skills/*.md`）  
+      - 分目录组织（`skills/<name>/SKILL.md`）  
+      - 远端拉取与缓存（把 skill 变成可更新资源）
+
+      不同组织方式的权衡是：可维护性、可版本化、以及“模型能否稳定找到它要的那一份”。
+
+  - type: md
+    title: 动手练习：写一个你自己的 skill，并观察按需加载是否发生
+    body: |
+      目标：让模型先看到“技能目录”，再主动调用 `load_skill` 拉取全文。
+
+      1) 准备一个最小 skill（示例思路）：
+      - 名称：`pytest`  
+      - description：如何为 Python 模块补最小单元测试  
+      - 正文：一个 5 步 checklist（写测试→运行→修失败→再运行→提交）
+
+      2) 创建目录并写入文件（示例）：
+
+      ```bash
+      mkdir -p .skills
       ```
-      System prompt (Layer 1 -- always present):
-      +--------------------------------------+
-      | You are a coding agent.              |
-      | Skills available:                    |
-      |   - git: Git workflow helpers        |  ~100 tokens/skill
-      |   - test: Testing best practices     |
-      +--------------------------------------+
-      
-      When model calls load_skill("git"):
-      +--------------------------------------+
-      | tool_result (Layer 2 -- on demand):  |
-      | <skill name="git">                   |
-      |   Full git workflow instructions...  |  ~2000 tokens
-      |   Step 1: ...                        |
-      |   Step 2: ...                        |
-      | </skill>                             |
-      +--------------------------------------+
+
+      然后创建 `.skills/pytest.md`，确保带有 frontmatter（哪怕只有 description 也可以）：
+
+      ```md
+      ---
+      description: Minimal pytest workflow
+      ---
+
+      # Pytest workflow (minimal)
+
+      1) Write the smallest failing test
+      2) Run pytest
+      3) Fix the implementation
+      4) Run pytest again
+      5) Commit with a clear message
       ```
-      
-      ## 工作原理
-      
-      1. 技能文件以 Markdown 格式存放在 `.skills/` 目录中, 带有 YAML frontmatter。
-      
-      ```
-      .skills/
-        git.md       # ---\n description: Git workflow\n ---\n ...
-        test.md      # ---\n description: Testing patterns\n ---\n ...
-      ```
-      
-      2. SkillLoader 解析 frontmatter, 分离元数据和正文。
-      
-      ```python
-      class SkillLoader:
-          def _parse_frontmatter(self, text: str) -> tuple:
-              match = re.match(
-                  r"^---\n(.*?)\n---\n(.*)", text, re.DOTALL
-              )
-              if not match:
-                  return {}, text
-              meta = {}
-              for line in match.group(1).strip().splitlines():
-                  if ":" in line:
-                      key, val = line.split(":", 1)
-                      meta[key.strip()] = val.strip()
-              return meta, match.group(2).strip()
-      ```
-      
-      3. 第一层: `get_descriptions()` 返回简短描述, 用于系统提示。
-      
-      ```python
-      def get_descriptions(self) -> str:
-          lines = []
-          for name, skill in self.skills.items():
-              desc = skill["meta"].get("description", "No description")
-              lines.append(f"  - {name}: {desc}")
-          return "\n".join(lines)
-      
-      SYSTEM = f"""You are a coding agent at {WORKDIR}.
-      Skills available:
-      {SKILL_LOADER.get_descriptions()}"""
-      ```
-      
-      4. 第二层: `get_content()` 返回用 `<skill>` 标签包裹的完整正文。
-      
-      ```python
-      def get_content(self, name: str) -> str:
-          skill = self.skills.get(name)
-          if not skill:
-              return f"Error: Unknown skill '{name}'."
-          return f"<skill name=\"{name}\">\n{skill['body']}\n</skill>"
-      ```
-      
-      5. `load_skill` 工具只是 dispatch map 中的又一个条目。
-      
-      ```python
-      TOOL_HANDLERS = {
-          # ...base tools...
-          "load_skill": lambda **kw: SKILL_LOADER.get_content(kw["name"]),
-      }
-      ```
-      
-      ## 核心代码
-      
-      SkillLoader 类 (来自 `agents/s05_skill_loading.py`, 第 51-97 行):
-      
-      ```python
-      class SkillLoader:
-          def __init__(self, skills_dir: Path):
-              self.skills = {}
-              for f in sorted(skills_dir.glob("*.md")):
-                  text = f.read_text()
-                  meta, body = self._parse_frontmatter(text)
-                  self.skills[f.stem] = {
-                      "meta": meta, "body": body
-                  }
-      
-          def get_descriptions(self) -> str:
-              lines = []
-              for name, skill in self.skills.items():
-                  desc = skill["meta"].get("description", "")
-                  lines.append(f"  - {name}: {desc}")
-              return "\n".join(lines)
-      
-          def get_content(self, name: str) -> str:
-              skill = self.skills.get(name)
-              if not skill:
-                  return f"Error: Unknown skill '{name}'."
-              return (f"<skill name=\"{name}\">\n"
-                      f"{skill['body']}\n</skill>")
-      ```
-      
-      ## 相对 s04 的变更
-      
-      | 组件           | 之前 (s04)       | 之后 (s05)                     |
-      |----------------|------------------|----------------------------|
-      | Tools          | 5 (基础 + task)  | 5 (基础 + load_skill)      |
-      | 系统提示       | 静态字符串       | + 技能描述列表             |
-      | 知识库         | 无               | .skills/*.md 文件          |
-      | 注入方式       | 无               | 两层 (系统提示 + result)   |
-      
-      ## 设计原理
-      
-      两层注入解决了注意力预算问题。将所有技能内容放入系统提示会在未使用的技能上浪费 token。第一层 (紧凑摘要) 总共约 120 token。第二层 (完整内容) 通过 tool_result 按需加载。这可以扩展到数十个技能而不降低模型注意力质量。关键洞察是: 模型只需要知道有哪些技能 (低成本) 就能决定何时加载某个技能 (高成本)。这与软件模块系统中的懒加载原则相同。
-      
-      ## 试一试
-      
-      ```sh
-      cd learn-claude-code
+
+      3) 运行：
+
+      ```bash
       python agents/s05_skill_loading.py
       ```
-      
-      可以尝试的提示:
-      
-      1. `What skills are available?`
-      2. `Load the agent-builder skill and follow its instructions`
-      3. `I need to do a code review -- load the relevant skill first`
-      4. `Build an MCP server using the mcp-builder skill`
+
+      4) 用一个提示触发：
+      - “I need to add tests for this function. Load the relevant skill first.”
+
+      观察点：
+      - 模型是否先列出/引用技能清单？  
+      - 它是否真的调用了 `load_skill`？  
+      - 加载的技能是否在后续行为里体现为具体步骤，而不是一句口号？
 
   - type: md
-    title: 动手练习（本地运行）
+    title: 原文阅读
     body: |
-      如果你还没有配置运行环境，请先完成《导论》里的准备步骤。
-      
-      本课建议最小实践：
-      
-      ```sh
-      python agents/s05_skill_loading.py
-      ```
-      
-      你可以把本课当成一个小实验：
-      
-      1) 先按文档里的 `试一试` 跑通一次（确保能复现）。
-      2) 再做一次**微改动**（例如：添加一个新的提示、改一个阈值、加一个危险命令拦截），观察行为差异。
-      
-      检查点（你应该能回答）：
-      
-      - 这节课新增的“机制”是什么？它解决了什么具体失败模式？
-      - 这套机制的状态/真实来源是什么（内存、messages[]、文件系统、线程）？
+      - 日期：2026-02-26（仓库快照）
+      - 来源：shareAI-lab/learn-claude-code（MIT，commit: ff8acd8）
+      - 建议：对照阅读“Layer 1 在 system prompt 的注入方式”与 `load_skill` 的 tool_result 返回格式；同时思考：如果 skill 很长，你会怎样做二次压缩或分段加载。
+
+  - type: url
+    title: "上游文档：s05 Skill Loading"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/docs/zh/s05-skill-loading.md
+    mode: open
+
+  - type: url
+    title: "上游代码：agents/s05_skill_loading.py"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/agents/s05_skill_loading.py
+    mode: open
 
   - type: md
-    layout: inline
+    title: 回到开头的问题：一些提示（Hints）
     body: |
-      本课在上游仓库中的位置：
-      
-      - 文档：`docs/zh/s05-skill-loading.md`
-      - 代码：`agents/s05_skill_loading.py`
-      
-      上游仓库：`https://github.com/shareAI-lab/learn-claude-code`
+      1) system prompt 膨胀后容易失效，本质是注意力预算与相关性问题：每轮都携带大量不相关规则，会稀释关键指令。  
+      2) 两层注入把“目录”与“正文”分开：让模型低成本知道可用技能，再在需要时通过工具把全文拉进来。  
+      3) Layer 1 适合放名称与短描述（帮助选择）；Layer 2 适合放可执行的流程、清单与规范（帮助行动）。  
+      4) tool_result 注入长文本时，要留意上下文污染：必要时可以分段加载、结构化输出、或把技能拆成更小模块。

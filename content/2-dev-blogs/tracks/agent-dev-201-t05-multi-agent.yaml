@@ -1,23 +1,29 @@
 id: agent-dev-201-t05-multi-agent
-title: "Multi-Agent Systems：架构模式与协作"
+title: "多智能体协作：何时并行，如何可控合并"
 description: |
-  建立 multi-agent 的正确边界与可落地架构：先理解为什么多数场景不该轻易 multi-agent，
-  再学习 orchestrator-worker、并行压缩、常见协作模式与跨系统 capability discovery。
+  multi-agent 往往看起来很诱人：把任务拆开并行跑，似乎就能同时获得更快的速度与更好的结果。
+  但在真实工程里，多智能体带来的主要困难通常不是“并行怎么写”，而是：
+  **多个探索轨迹如何在不丢信息、不互相污染的前提下被合并回主线**。
+
+  因此，本 track 先从“边界”开始：哪些问题用单 agent 更稳、更便宜；哪些问题（特别是研究/检索/覆盖型任务）更可能从并行探索获益。
+  随后再进入可迁移的架构与模式：orchestrator–worker 的 fan-out / fan-in、并行压缩回传的输出契约、常见协作模式，以及跨系统的能力发现与协议化集成。
+
+  学习建议：multi-agent 往往会放大你在单 agent 阶段尚未解决的问题（上下文污染、状态不可追溯、工具边界不清）。如果你发现自己在并行后“更快地制造更大的混乱”，可以先回到 harness/context/observability 的基本功，再来看这些协作模式通常会更有收获。
 modules:
   - id: multiagent-boundaries
-    title: "边界与反例：什么时候不该 multi-agent"
+    title: "第 1 章：边界与反例——什么时候不该做 Multi-Agent"
     lessons:
       - devblog-2025-06-12-don-t-build-multi-agents
   - id: orchestrator-worker
-    title: "并行委派：Orchestrator–Worker 与 Subagents"
+    title: "第 2 章：Orchestrator–Worker——并行探索与“压缩回传”"
     lessons:
       - devblog-2025-06-13-how-we-built-our-multi-agent-research-system
       - devblog-2026-01-21-building-multi-agent-applications-with-deep-agen
   - id: multiagent-patterns
-    title: "模式库：Pipeline / Dispatcher / Fan-out / Critic"
+    title: "第 3 章：协作模式库——Pipeline / Dispatcher / Fan-out / Critic"
     lessons:
       - devblog-2025-12-16-developers-guide-to-multi-agent-patterns-in-adk
   - id: capability-discovery
-    title: "发现与互操作：Capability Manifest 与协议化集成"
+    title: "第 4 章：互操作与发现——Capability Manifest 与协议化集成"
     lessons:
       - devblog-2026-01-11-under-the-hood-universal-commerce-protocol-ucp

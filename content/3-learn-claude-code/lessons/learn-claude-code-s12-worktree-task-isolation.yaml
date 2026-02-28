@@ -1,239 +1,156 @@
 id: learn-claude-code-s12-worktree-task-isolation
-title: "s12 Worktree：任务 ID 协调的工作区隔离"
+title: "第 12 课：Worktree + Task Isolation——控制面/执行面分离，避免并行改动互相污染"
 summary: |
-  把“做什么”和“在哪里做”彻底分离：任务板是控制面，git worktree 是执行面；并行改动不再互相污染，且可追踪可收尾。
+  当多个 agent 并行改同一个工作目录时，未提交变更会互相干扰，任务状态也会和实际修改脱节。
+  本课用 git worktree 做目录级隔离：任务板（.tasks/）作为控制面定义“做什么”，worktree（.worktrees/）作为执行面定义“在哪做”，两者用 task_id 显式绑定，并用事件流记录生命周期。
 items:
   - type: md
-    title: 学习目标
+    title: 导入：本课要回答的问题
     body: |
-      - 理解控制面 vs 执行面：`.tasks/` 管目标，`.worktrees/` 管隔离目录与生命周期。
-      - 掌握 worktree 绑定任务的状态机：pending→in_progress→completed；active→removed/kept。
-      - 能运行 `agents/s12_worktree_task_isolation.py` 并创建/移除一个隔离 worktree。
+      到了 s11，你已经能让队友自动认领任务并协同推进。
+      但如果所有任务仍然共享同一个工作目录，“并行”很容易变成“互相污染”：
+      - 两个任务同时改同一个文件，彼此的未提交变更会出现在对方视野里；  
+      - 一个队友跑 `git status` 看到了另一个队友的半成品，很难判断该保留还是清理；  
+      - 最终你可能既无法干净收尾，也很难复盘每个任务到底改了什么。
 
-      建议：阅读正文时，把注意力放在“这一课只新增了哪一个机制”。
+      本课要回答：
+
+      1) 并行改动的根因问题是什么？它不是“多线程难”，而是哪里共享得太多？  
+      2) 为什么把“任务（What）”与“执行目录（Where）”分开，会显著降低协调成本？  
+      3) git worktree 在这里提供的最核心能力是什么？  
+      4) 为什么需要 index.json 与 events.jsonl 这两类“旁路状态”？
 
   - type: md
-    title: 讲义（问题 → 方案 → 原理 → 代码）
+    title: 概念对齐：控制面（What）与执行面（Where）
     body: |
-      > 目录隔离, 任务 ID 协调 -- 用"任务板 (控制面) + worktree (执行面)"把并行改动从互相污染变成可追踪、可恢复、可收尾。
-      
-      ## 问题
-      
-      s11 时, agent 已经能认领任务并协同推进。但所有任务共享同一个工作目录。两个 agent 同时改同一棵文件树时, 未提交的变更互相干扰, 任务状态和实际改动对不上, 收尾时也无法判断该保留还是清理哪些文件。
-      
-      考虑一个具体场景: agent A 在做 auth 重构, agent B 在做登录页。两者都修改了 `config.py`。A 的半成品改动被 B 的 `git status` 看到, B 以为是自己的遗留, 尝试提交 -- 结果两个任务都坏了。
-      
-      根因是"做什么"和"在哪里做"没有分开。任务板管目标, 但执行上下文是共享的。解决方案: 给每个任务分配独立的 git worktree 目录, 用任务 ID 把两边关联起来。
-      
-      ## 解决方案
-      
-      ```
-      控制面 (.tasks/)             执行面 (.worktrees/)
-      +------------------+         +------------------------+
-      | task_1.json      |         | auth-refactor/         |
-      |   status: in_progress  <---->   branch: wt/auth-refactor
-      |   worktree: "auth-refactor" |   task_id: 1           |
-      +------------------+         +------------------------+
-      | task_2.json      |         | ui-login/              |
-      |   status: pending    <---->   branch: wt/ui-login
-      |   worktree: "ui-login"  |   task_id: 2           |
-      +------------------+         +------------------------+
-                                    |
-                          index.json (worktree registry)
-                          events.jsonl (lifecycle log)
-      ```
-      
-      三层状态:
-      1. 控制面 (What): `.tasks/task_*.json` -- 任务目标、责任归属、完成状态
-      2. 执行面 (Where): `.worktrees/index.json` -- 隔离目录路径、分支、存活状态
-      3. 运行态 (Now): 单轮内存上下文 -- 当前任务、当前 worktree、工具结果
-      
-      状态机:
-      ```text
-      Task:     pending -> in_progress -> completed
-      Worktree: absent  -> active      -> removed | kept
-      ```
-      
-      ## 工作原理
-      
-      1. 创建任务, 把目标写入任务板。
-      
-      ```python
-      TASKS.create("Implement auth refactor")
-      # -> .tasks/task_1.json  status=pending  worktree=""
-      ```
-      
-      2. 创建 worktree 并绑定任务。传入 `task_id` 时自动把任务推进到 `in_progress`。
-      
-      ```python
-      WORKTREES.create("auth-refactor", task_id=1)
-      # -> git worktree add -b wt/auth-refactor .worktrees/auth-refactor HEAD
-      # -> index.json 追加 entry, task_1.json 绑定 worktree="auth-refactor"
-      ```
-      
-      3. 在隔离目录中执行命令。`cwd` 指向 worktree 路径, 主目录不受影响。
-      
-      ```python
-      WORKTREES.run("auth-refactor", "git status --short")
-      # -> subprocess.run(command, cwd=".worktrees/auth-refactor", ...)
-      ```
-      
-      4. 观测和回写。`worktree_status` 查看 git 状态, `task_update` 维护进度。
-      
-      ```python
-      WORKTREES.status("auth-refactor")  # git status inside worktree
-      TASKS.update(1, owner="agent-A")   # update task metadata
-      ```
-      
-      5. 收尾: 选择 keep 或 remove。`remove` 配合 `complete_task=true` 会同时完成任务并解绑 worktree。
-      
-      ```python
-      WORKTREES.remove("auth-refactor", complete_task=True)
-      # -> git worktree remove
-      # -> task_1.json status=completed, worktree=""
-      # -> index.json  status=removed
-      # -> events.jsonl 写入 task.completed + worktree.remove.after
-      ```
-      
-      6. 进程中断后, 从 `.tasks/` + `.worktrees/index.json` 重建现场。会话记忆是易失的, 磁盘状态是持久的。
-      
-      ## 核心代码
-      
-      事件流 -- append-only 生命周期日志 (来自 `agents/s12_worktree_task_isolation.py`):
-      
-      ```python
-      class EventBus:
-          def emit(self, event, task=None, worktree=None, error=None):
-              payload = {
-                  "event": event,
-                  "ts": time.time(),
-                  "task": task or {},
-                  "worktree": worktree or {},
-              }
-              if error:
-                  payload["error"] = error
-              with self.path.open("a", encoding="utf-8") as f:
-                  f.write(json.dumps(payload) + "\n")
-      ```
-      
-      事件流写入 `.worktrees/events.jsonl`, 每个关键操作发出三段式事件:
-      - `worktree.create.before / after / failed`
-      - `worktree.remove.before / after / failed`
-      - `task.completed` (当 `complete_task=true` 成功时)
-      
-      事件负载形状:
-      
-      ```json
-      {
-        "event": "worktree.remove.after",
-        "task": {"id": 7, "status": "completed"},
-        "worktree": {"name": "auth-refactor", "path": "...", "status": "removed"},
-        "ts": 1730000000
-      }
-      ```
-      
-      任务绑定 -- Task 侧持有 worktree 名称:
-      
-      ```python
-      def bind_worktree(self, task_id: int, worktree: str, owner: str = "") -> str:
-          task = self._load(task_id)
-          task["worktree"] = worktree
-          if task["status"] == "pending":
-              task["status"] = "in_progress"
-          self._save(task)
-      ```
-      
-      隔离执行 -- cwd 路由到 worktree 目录:
-      
-      ```python
-      r = subprocess.run(
-          command,
-          shell=True,
-          cwd=path,
-          capture_output=True,
-          text=True,
-          timeout=300,
-      )
-      ```
-      
-      收尾联动 -- remove 同时完成任务:
-      
-      ```python
-      def remove(self, name, force=False, complete_task=False):
-          self._run_git(["worktree", "remove", wt["path"]])
-          if complete_task and wt.get("task_id") is not None:
-              self.tasks.update(wt["task_id"], status="completed")
-              self.tasks.unbind_worktree(wt["task_id"])
-              self.events.emit("task.completed", ...)
-      ```
-      
-      生命周期工具注册:
-      
-      ```python
-      "worktree_keep":   lambda **kw: WORKTREES.keep(kw["name"]),
-      "worktree_events": lambda **kw: EVENTS.list_recent(kw.get("limit", 20)),
-      ```
-      
-      ## 相对 s11 的变更
-      
-      | 组件           | 之前 (s11)                 | 之后 (s12)                              |
-      |----------------|----------------------------|-----------------------------------------|
-      | 协调状态       | 任务板 (owner/status)      | 任务板 + `worktree` 显式绑定            |
-      | 执行上下文     | 共享目录                   | 每个任务可分配独立 worktree 目录        |
-      | 可恢复性       | 依赖任务状态               | 任务状态 + worktree 索引双重恢复        |
-      | 收尾语义       | 任务完成                   | 任务完成 + worktree 显式 keep/remove    |
-      | 生命周期可见性 | 隐式日志                   | `.worktrees/events.jsonl` 显式事件流    |
-      
-      ## 设计原理
-      
-      控制面/执行面分离是这一章的核心模式。Task 管"做什么", worktree 管"在哪做", 两者通过 task ID 关联但不强耦合。这意味着一个任务可以先不绑定 worktree (纯规划阶段), 也可以在多个 worktree 之间迁移。
-      
-      显式状态机让每次迁移都可审计、可恢复。进程崩溃后, 从 `.tasks/` 和 `.worktrees/index.json` 两个文件就能重建全部现场, 不依赖会话内存。
-      
-      事件流是旁路可观测层, 不替代主状态机写入。审计、通知、配额控制等副作用放在事件消费者中处理, 核心流程保持最小。`keep/remove` 作为显式收尾动作存在, 而不是隐式清理 -- agent 必须做出决策, 这个决策本身被记录。
-      
-      ## 试一试
-      
-      ```sh
-      cd learn-claude-code
+      这节课的核心模式是 **控制面/执行面分离**：
+
+      **控制面：Task Board（.tasks/）**  
+      任务板描述“要做什么”：目标、状态、负责人、以及（在本课之后）它绑定到哪个 worktree。
+
+      **执行面：Worktrees（.worktrees/）**  
+      worktree 描述“在哪里做”：一个独立目录 + 对应分支。它承载实际的文件修改、构建产物与局部 git 状态。
+
+      当两者分离后，你可以做到：
+      - 一个任务还在规划阶段时，不必立即创建 worktree  
+      - 需要并行或高风险改动时，为任务分配一条独立 worktree “车道”  
+      - 收尾时显式决定 keep/remove，而不是在共享目录里做隐式清理
+
+  - type: md
+    title: 为什么共享目录会让并行任务“状态对不上”？
+    body: |
+      在共享目录里，任务 A 与任务 B 的修改会交织在一起，导致两类错位：
+
+      **1) 任务状态 vs 实际改动错位**  
+      任务板说 A 正在进行，但 git 状态里可能混着 B 的改动；你很难回答“这个 diff 属于哪个任务”。
+
+      **2) 收尾语义缺失**  
+      共享目录里没有“为任务收尾”的显式动作：你只能靠人工判断哪些文件要保留、哪些要还原。
+
+      worktree 隔离本质上是在物理层面给每个任务一个独立工作区，让“任务边界”落到目录边界上。
+
+  - type: md
+    title: WorktreeManager：create / run / status / keep / remove
+    body: |
+      s12 引入了 WorktreeManager，把 git worktree 变成一组可被模型调用的工具：
+
+      - `worktree_create(name, task_id?, base_ref=HEAD)`：创建一个 worktree 目录与分支（分支名形如 `wt/<name>`），并可选绑定到 task_id。  
+      - `worktree_run(name, command)`：在指定 worktree 目录里执行命令（通过 `cwd=worktree_path` 路由执行面）。  
+      - `worktree_status(name)`：查看该 worktree 的 git 状态（在隔离目录内执行 `git status`）。  
+      - `worktree_keep(name)`：标记该 worktree 被保留（例如后续继续开发或等待 review）。  
+      - `worktree_remove(name, complete_task=false)`：移除该 worktree；如果 complete_task=true，并且 worktree 绑定了 task_id，会同步把任务标记完成并解绑 worktree。
+
+      这里的关键不是“多了几个工具”，而是把“执行上下文”的选择变成显式 API：每次执行都必须指定 lane（worktree 名称）。
+
+  - type: md
+    title: 显式绑定：task_id 如何把控制面与执行面对齐？
+    body: |
+      s12 做了两边的显式绑定：
+
+      **Task 侧持有 worktree 名称**  
+      任务 JSON 里有 `worktree` 字段。绑定后它会被写成 worktree 名称，并把任务状态从 pending 推进到 in_progress。
+
+      **Worktree 侧持有 task_id**  
+      worktree 的 registry（index.json）里记录 `task_id`，让你能从 worktree 追溯“它服务于哪个任务”。
+
+      这种双向关联让你在调试时更容易回答：
+      - “任务 7 的执行面在哪个目录？”  
+      - “这个 worktree 的变更应该归到哪个任务？”
+
+  - type: md
+    title: index.json：worktree registry 解决“可恢复性”
+    body: |
+      `.worktrees/index.json` 是一个最小 registry：记录所有 worktree 的 name/path/branch/task_id/status。
+
+      它的作用是让系统在进程中断后仍能重建现场：
+      - worktree 目录在磁盘上  
+      - index 里有指向这些目录的可枚举列表  
+      - task 文件里也有绑定信息
+
+      这比“把所有信息放在内存里”更接近工程现实：会话记忆是易失的，但磁盘状态是持久的。
+
+  - type: md
+    title: events.jsonl：事件流是旁路可观测层，而不是主状态
+    body: |
+      s12 还引入了一个 EventBus，把关键操作写成 append-only 的事件流（`.worktrees/events.jsonl`）：
+      - `worktree.create.before/after/failed`  
+      - `worktree.remove.before/after/failed`  
+      - `worktree.keep`  
+      - `task.completed`（当 remove + complete_task 成功时）
+
+      事件流的工程意义在于：
+      - 它不会替代 task/index 这两个主状态机；  
+      - 它提供审计与调试线索：你可以看到“什么时候创建、什么时候移除、失败原因是什么”；  
+      - 你可以把副作用（通知、配额、回收策略）放到事件消费者里，让核心流程保持最小。
+
+  - type: md
+    title: 动手练习：两个任务，两条 worktree lane，最后显式收尾
+    body: |
+      1) 运行：
+
+      ```bash
       python agents/s12_worktree_task_isolation.py
       ```
-      
-      可以尝试的提示:
-      
-      1. `Create tasks for backend auth and frontend login page, then list tasks.`
-      2. `Create worktree "auth-refactor" for task 1, create worktree "ui-login", then bind task 2 to "ui-login".`
-      3. `Run "git status --short" in worktree "auth-refactor".`
-      4. `Keep worktree "ui-login", then list worktrees and inspect worktree events.`
-      5. `Remove worktree "auth-refactor" with complete_task=true, then list tasks/worktrees/events.`
+
+      小提示：脚本会尝试探测当前目录所属的 git 仓库根目录，并把 `.tasks/` 与 `.worktrees/` 写在仓库根目录下。
+      如果你在仓库的子目录里运行，记得去 repo root 查看这些目录与文件。
+
+      2) 建议操作路径：
+      - 创建两个任务（例如后端 auth 与前端 login）  
+      - 分别创建 worktree 并绑定到各自 task_id  
+      - 在各自 worktree 里运行 `git status --short`（确认隔离生效）  
+      - keep 一个 worktree（表示保留），remove 另一个 worktree 并设置 complete_task=true（表示任务完成并收尾）
+
+      3) 检查点：
+      - `task_list` 是否显示 owner 与 wt 绑定信息？  
+      - `worktree_list` 的 status 是否随 keep/remove 更新？  
+      - `worktree_events` 是否能看到 create/remove/keep 的事件序列？
+
+      4) 微改动（建议）：
+      - 在 worktree_create 时允许传入 base_ref（例如某个分支），观察这会如何影响并行开发流程。  
+      - 在 events payload 里加入更多上下文字段（例如当前 git commit），观察可追溯性提升到什么程度。
 
   - type: md
-    title: 动手练习（本地运行）
+    title: 原文阅读
     body: |
-      如果你还没有配置运行环境，请先完成《导论》里的准备步骤。
-      
-      本课建议最小实践：
-      
-      ```sh
-      python agents/s12_worktree_task_isolation.py
-      ```
-      
-      你可以把本课当成一个小实验：
-      
-      1) 先按文档里的 `试一试` 跑通一次（确保能复现）。
-      2) 再做一次**微改动**（例如：添加一个新的提示、改一个阈值、加一个危险命令拦截），观察行为差异。
-      
-      检查点（你应该能回答）：
-      
-      - 这节课新增的“机制”是什么？它解决了什么具体失败模式？
-      - 这套机制的状态/真实来源是什么（内存、messages[]、文件系统、线程）？
+      - 日期：2026-02-26（仓库快照）
+      - 来源：shareAI-lab/learn-claude-code（MIT，commit: ff8acd8）
+      - 建议：对照阅读 WorktreeManager.create/remove/keep 的状态变更、task_id 的双向绑定、index.json 的 registry 设计与 events.jsonl 的三段式事件；同时留意：worktree 工具需要处于 git 仓库内才能工作。
+
+  - type: url
+    title: "上游文档：s12 Worktree Task Isolation"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/docs/zh/s12-worktree-task-isolation.md
+    mode: open
+
+  - type: url
+    title: "上游代码：agents/s12_worktree_task_isolation.py"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/agents/s12_worktree_task_isolation.py
+    mode: open
 
   - type: md
-    layout: inline
+    title: 回到开头的问题：一些提示（Hints）
     body: |
-      本课在上游仓库中的位置：
-      
-      - 文档：`docs/zh/s12-worktree-task-isolation.md`
-      - 代码：`agents/s12_worktree_task_isolation.py`
-      
-      上游仓库：`https://github.com/shareAI-lab/learn-claude-code`
+      1) 并行改动的根因是共享执行上下文：多个任务在同一目录里读写同一套未提交状态，导致污染与难以收尾。  
+      2) 控制面/执行面分离把“做什么”与“在哪做”拆开：任务板管理目标与进度，worktree 管理隔离目录与分支。  
+      3) git worktree 提供的核心能力是目录级隔离：让每个任务有独立的工作区，减少并行协作时的状态干扰。  
+      4) index.json 与 events.jsonl 分别解决“可恢复性”和“可观测性”：前者用于重建现场，后者用于审计与调试，并不替代主状态机。

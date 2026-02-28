@@ -1,54 +1,57 @@
 id: learn-claude-code
-title: "Learn Claude Code：从 0 到 1 构建 nano Claude Code-like agent"
+title: "终端编程 Agent 项目课：从 Loop 到协作自治（Claude Code-like 架构）"
 description: |
-  这是一个项目驱动、递进式的 coding agent 课程：从最小 while 循环（agent loop）开始，逐步叠加工具分发、计划、子智能体隔离、技能按需加载、上下文压缩、任务持久化、团队协作与 worktree 隔离，最终形成一个“可自治的、多智能体协作”的最小系统。
+  这条学习路径不把 agent 当作“更会写代码的聊天机器人”，而是把它当作一个可运行的系统：它需要控制流（loop）、行动能力（tools）、
+  外部状态（任务板/文件/事件）、以及一系列让长任务可持续的工程机制（隔离、压缩、持久化、协作协议）。
 
-  本轮材料（2026-02-26）：shareAI-lab/learn-claude-code（MIT）。
-  说明：站内提供讲义与关键代码片段；动手练习需本地 clone 上游仓库并运行脚本。
+  本 track 采用项目驱动的拆解方式：每一课只引入一个机制，并在一份可运行脚本里展示“它加在哪里、改变了什么行为、解决了哪类失败模式”。
+  虽然上游项目以 “Claude Code-like” 命名，但课程关注的多数机制（dispatch、上下文治理、状态外置、协议、worktree lane）具有可迁移性。
+
+  材料快照：2026-02-26，shareAI-lab/learn-claude-code（MIT，commit: ff8acd8）。
+  站内提供讲解与阅读指引；动手练习建议在本地 clone 上游仓库并运行对应脚本。
 modules:
   - id: intro
-    title: 导论
+    title: 导论：学习方式与环境准备
     lessons:
       - learn-claude-code-intro
 
   - id: loop
-    title: 循环与工具
+    title: Part I 最小闭环：Loop 与工具调用
     lessons:
       - learn-claude-code-s01-agent-loop
       - learn-claude-code-s02-tools
 
   - id: planning
-    title: 规划与隔离
+    title: Part II 可见进度：规划与上下文隔离
     lessons:
       - learn-claude-code-s03-todowrite
       - learn-claude-code-s04-subagent
 
   - id: context
-    title: 知识与上下文
+    title: Part III 上下文治理：按需知识与压缩
     lessons:
       - learn-claude-code-s05-skill-loading
       - learn-claude-code-s06-context-compact
 
   - id: persistence
-    title: 持久化与后台执行
+    title: Part IV 可持续执行：任务落盘与后台工作
     lessons:
       - learn-claude-code-s07-task-system
       - learn-claude-code-s08-background-tasks
 
   - id: teams
-    title: 团队与自治
+    title: Part V 多执行体协作：队友、协议与自治
     lessons:
       - learn-claude-code-s09-agent-teams
       - learn-claude-code-s10-team-protocols
       - learn-claude-code-s11-autonomous-agents
 
   - id: worktree
-    title: 工作区隔离
+    title: Part VI 执行面隔离：Worktree Lane 与任务收尾
     lessons:
       - learn-claude-code-s12-worktree-task-isolation
 
   - id: references
-    title: 参考资料
+    title: 参考与迁移：把机制带回你的项目
     lessons:
       - learn-claude-code-references
-

@@ -1,261 +1,141 @@
 id: learn-claude-code-s11-autonomous-agents
-title: "s11 Autonomous Agents：轮询-认领-工作-重复"
+title: "第 11 课：Autonomous Agents——空闲轮询 + 自动认领，让队友自己找活干"
 summary: |
-  让团队“自治”：队友空闲时轮询任务板，自动认领可做的任务并推进；无需中央协调者也能自组织。
+  在 s09-s10 中，队友需要被明确指派才能工作。要扩展到更多任务，队友需要具备“自找工作”的机制。
+  本课引入 idle cycle：队友在空闲阶段轮询收件箱与任务看板，发现未认领任务就自动 claim 并进入工作阶段；
+  同时加入身份重注入，避免上下文被压缩/重置后忘记自己是谁。
 items:
   - type: md
-    title: 学习目标
+    title: 导入：本课要回答的问题
     body: |
-      - 理解自治的最小循环：poll → claim → work → report → repeat。
-      - 掌握无协调者的自组织要点：任务状态可见、认领规则一致、失败可重试/可转交。
-      - 能运行 `agents/s11_autonomous_agents.py` 并观察多 agent 的任务推进。
+      让多个队友协作之后，一个新的瓶颈会出现：lead 的分配成本。
+      如果任务看板上有 10 个待办，而你必须逐个 spawn/逐个发指令，团队并不会真正“自治”，只是把执行分散到了多个线程。
 
-      建议：阅读正文时，把注意力放在“这一课只新增了哪一个机制”。
+      本课要回答：
+
+      1) “自治”在工程上意味着什么？它不是“模型更强”，而是什么机制更完整？  
+      2) 队友如何在没有新指令时进入空闲，又如何在出现新工作时恢复？  
+      3) 任务自动认领（auto-claim）具体认领了什么状态？怎么避免两个队友抢同一个任务？  
+      4) 为什么上下文压缩后，队友可能会忘记自己的身份？身份重注入解决的是什么问题？
 
   - type: md
-    title: 讲义（问题 → 方案 → 原理 → 代码）
+    title: 概念对齐：自治 = 任务来源外置 + 可重复的认领规则
     body: |
-      > 带任务看板轮询的空闲循环让队友能自己发现和认领工作, 上下文压缩后通过身份重注入保持角色认知。
-      
-      ## 问题
-      
-      在 s09-s10 中, 队友只在被明确指示时才工作。领导必须用特定的 prompt 生成每个队友。如果任务看板上有 10 个未认领的任务, 领导必须手动分配每一个。这无法扩展。
-      
-      真正的自治意味着队友自己寻找工作。当一个队友完成当前任务后, 它应该扫描任务看板寻找未认领的工作, 认领一个任务, 然后开始工作 -- 不需要领导的任何指令。
-      
-      但自治智能体面临一个微妙问题: 上下文压缩后, 智能体可能忘记自己是谁。如果消息被摘要化, 原始系统提示中的身份 ("你是 alice, 角色: coder") 就会淡化。身份重注入通过在压缩后的上下文开头插入身份块来解决这个问题。
-      
-      注: token 估算使用字符数/4 (粗略)。nag 阈值 3 轮是为教学可见性设的低值。
-      
-      ## 解决方案
-      
-      ```
-      Teammate lifecycle with idle cycle:
-      
-      +-------+
-      | spawn |
-      +---+---+
-          |
-          v
-      +-------+   tool_use     +-------+
-      | WORK  | <------------- |  LLM  |
-      +---+---+                +-------+
-          |
-          | stop_reason != tool_use
-          | (or idle tool called)
-          v
-      +--------+
-      |  IDLE  |  poll every 5s for up to 60s
-      +---+----+
-          |
-          +---> check inbox --> message? ----------> WORK
-          |
-          +---> scan .tasks/ --> unclaimed? -------> claim -> WORK
-          |
-          +---> 60s timeout ----------------------> SHUTDOWN
-      
-      Identity re-injection after compression:
-        if len(messages) <= 3:
-          messages.insert(0, identity_block)
-          "You are 'alice', role: coder, team: my-team"
-      ```
-      
-      ## 工作原理
-      
-      1. 队友循环有两个阶段: WORK 和 IDLE。WORK 阶段运行标准的 agent loop。当 LLM 停止调用工具 (或调用了 `idle` 工具) 时, 队友进入 IDLE 阶段。
-      
-      ```python
-      def _loop(self, name, role, prompt):
-          while True:
-              # -- WORK PHASE --
-              messages = [{"role": "user", "content": prompt}]
-              for _ in range(50):
-                  inbox = BUS.read_inbox(name)
-                  for msg in inbox:
-                      if msg.get("type") == "shutdown_request":
-                          self._set_status(name, "shutdown")
-                          return
-                      messages.append(...)
-                  response = client.messages.create(...)
-                  if response.stop_reason != "tool_use":
-                      break
-                  # execute tools...
-                  if idle_requested:
-                      break
-      
-              # -- IDLE PHASE --
-              self._set_status(name, "idle")
-              resume = self._idle_poll(name, messages)
-              if not resume:
-                  self._set_status(name, "shutdown")
-                  return
-              self._set_status(name, "working")
-      ```
-      
-      2. 空闲阶段循环轮询收件箱和任务看板。
-      
-      ```python
-      def _idle_poll(self, name, messages):
-          polls = IDLE_TIMEOUT // POLL_INTERVAL  # 60s / 5s = 12
-          for _ in range(polls):
-              time.sleep(POLL_INTERVAL)
-              # Check inbox for new messages
-              inbox = BUS.read_inbox(name)
-              if inbox:
-                  messages.append({"role": "user",
-                      "content": f"<inbox>{inbox}</inbox>"})
-                  return True
-              # Scan task board for unclaimed tasks
-              unclaimed = scan_unclaimed_tasks()
-              if unclaimed:
-                  task = unclaimed[0]
-                  claim_task(task["id"], name)
-                  messages.append({"role": "user",
-                      "content": f"<auto-claimed>Task #{task['id']}: "
-                                 f"{task['subject']}</auto-claimed>"})
-                  return True
-          return False  # timeout -> shutdown
-      ```
-      
-      3. 任务看板扫描查找 pending 状态、无 owner、未被阻塞的任务。
-      
-      ```python
-      def scan_unclaimed_tasks() -> list:
-          TASKS_DIR.mkdir(exist_ok=True)
-          unclaimed = []
-          for f in sorted(TASKS_DIR.glob("task_*.json")):
-              task = json.loads(f.read_text())
-              if (task.get("status") == "pending"
-                      and not task.get("owner")
-                      and not task.get("blockedBy")):
-                  unclaimed.append(task)
-          return unclaimed
-      
-      def claim_task(task_id: int, owner: str):
-          path = TASKS_DIR / f"task_{task_id}.json"
-          task = json.loads(path.read_text())
-          task["status"] = "in_progress"
-          task["owner"] = owner
-          path.write_text(json.dumps(task, indent=2))
-      ```
-      
-      4. 身份重注入: 当上下文过短时插入身份块, 表明发生了压缩。
-      
-      ```python
-      def make_identity_block(name, role, team_name):
-          return {"role": "user",
-                  "content": f"<identity>You are '{name}', "
-                             f"role: {role}, team: {team_name}. "
-                             f"Continue your work.</identity>"}
-      
-      # Before resuming work after idle:
-      if len(messages) <= 3:
-          messages.insert(0, make_identity_block(
-              name, role, team_name))
-          messages.insert(1, {"role": "assistant",
-              "content": f"I am {name}. Continuing."})
-      ```
-      
-      5. `idle` 工具让队友显式地表示没有更多工作, 提前进入空闲轮询阶段。
-      
-      ```python
-      {"name": "idle",
-       "description": "Signal that you have no more work. "
-                      "Enters idle polling phase.",
-       "input_schema": {"type": "object", "properties": {}}},
-      ```
-      
-      ## 核心代码
-      
-      自治循环 (来自 `agents/s11_autonomous_agents.py`):
-      
-      ```python
-      def _loop(self, name, role, prompt):
-          while True:
-              # WORK PHASE
-              for _ in range(50):
-                  response = client.messages.create(...)
-                  if response.stop_reason != "tool_use":
-                      break
-                  for block in response.content:
-                      if block.name == "idle":
-                          idle_requested = True
-                  if idle_requested:
-                      break
-      
-              # IDLE PHASE
-              self._set_status(name, "idle")
-              for _ in range(IDLE_TIMEOUT // POLL_INTERVAL):
-                  time.sleep(POLL_INTERVAL)
-                  inbox = BUS.read_inbox(name)
-                  if inbox: resume = True; break
-                  unclaimed = scan_unclaimed_tasks()
-                  if unclaimed:
-                      claim_task(unclaimed[0]["id"], name)
-                      resume = True; break
-              if not resume:
-                  self._set_status(name, "shutdown")
-                  return
-              self._set_status(name, "working")
-      ```
-      
-      ## 相对 s10 的变更
-      
-      | 组件           | 之前 (s10)       | 之后 (s11)                       |
-      |----------------|------------------|----------------------------------|
-      | Tools          | 12               | 14 (+idle, +claim_task)          |
-      | 自治性         | 领导指派         | 自组织                           |
-      | 空闲阶段       | 无               | 轮询收件箱 + 任务看板           |
-      | 任务认领       | 仅手动           | 自动认领未认领任务               |
-      | 身份           | 系统提示         | + 压缩后重注入                   |
-      | 超时           | 无               | 60 秒空闲 -> 自动关机            |
-      
-      ## 设计原理
-      
-      轮询 + 超时使智能体无需中央协调器即可自组织。每个智能体独立轮询任务看板, 认领未认领的工作, 完成后回到空闲状态。超时触发轮询循环, 如果在窗口期内没有工作出现, 智能体自行关机。这与工作窃取线程池的模式相同 -- 分布式, 无单点故障。压缩后的身份重注入确保智能体即使在对话历史被摘要后仍能保持其角色。
-      
-      ## 试一试
-      
-      ```sh
-      cd learn-claude-code
+      这节课的“自治”不是让模型凭空产生目标，而是让工作从一个外部可观察来源中产生：
+      - inbox（别人发来的请求）  
+      - task board（共享任务看板）
+
+      队友在空闲时重复执行同一个规则：
+      - 有消息就处理消息；  
+      - 没消息就看任务看板；  
+      - 有可认领任务就认领并开始做；  
+      - 都没有就等待一段时间，超时后自行关机。
+
+      这让自治看起来更像“事件循环 + 工作窃取”，而不是“完全自由的智能体”。
+
+  - type: md
+    title: 机制：WORK / IDLE 两阶段循环
+    body: |
+      s11 把队友的生命周期拆成两个阶段：
+
+      **WORK 阶段**  
+      仍然是熟悉的 agent loop：读 inbox、调用 LLM、执行工具、回填 tool_result。
+      当出现两种情况之一，就从 WORK 进入 IDLE：
+      - 模型不再请求工具（stop_reason != tool_use）  
+      - 模型显式调用 `idle` 工具，表示“我暂时没有更多工作”
+
+      **IDLE 阶段**  
+      队友不调用 LLM，而是每隔固定间隔（示例里 5 秒）轮询：
+      - 收件箱是否有新消息  
+      - 任务看板是否有可认领任务
+
+      如果在空闲窗口（示例里 60 秒）内找到工作，就恢复到 WORK；否则进入 shutdown。
+
+  - type: md
+    title: 任务看板轮询：哪些任务算“可认领”？
+    body: |
+      s11 复用 s07 的 `.tasks/` 作为共享看板，并定义了一个非常明确的“可认领”过滤条件：
+      - `status == "pending"`  
+      - `owner` 为空（未认领）  
+      - `blockedBy` 为空（没有前置依赖阻塞）
+
+      这三个条件让队友避免做两件事：
+      - 抢别人的活（owner 已有值）  
+      - 抢一个还没轮到做的活（blockedBy 非空）
+
+      你可以把这看成：自治的前提是“任务状态足够结构化”，否则队友很难稳定判断下一步。
+
+  - type: md
+    title: claim_task：认领动作如何落到文件系统状态？
+    body: |
+      认领不是一句话，而是一次状态写入：
+      - 把任务 JSON 的 `owner` 写成自己的名字  
+      - 把 `status` 改成 `in_progress`
+
+      这样，其他队友在下一次扫描时就会看到 owner 已存在，从而跳过它。
+
+      为了降低“两个队友同时认领同一任务”的风险，教学实现使用了一把 `_claim_lock`，
+      在同一进程内让 claim 操作互斥执行。
+
+      需要注意：这把锁只在单进程内有效。如果你把队友放到多个进程/多机上运行，还需要更强的原子认领机制（例如文件锁、CAS、或把任务状态搬进支持并发的存储）。
+
+  - type: md
+    title: 身份重注入：为什么要把“你是谁”写回上下文？
+    body: |
+      当上下文被压缩、或者被某种机制重置为很短的摘要时，队友可能出现一种微妙漂移：
+      - 它忘了自己是 alice 还是 bob  
+      - 它忘了自己的 role（coder/tester）  
+      - 它开始用不符合角色的方式行动（例如 tester 去改大量业务逻辑）
+
+      s11 的做法是：当 messages 变得很短（示例里用 `len(messages) <= 3` 作为启发式），
+      在 messages 开头插入一个 `<identity>...</identity>` 块，显式提醒：
+      “你是谁、角色是什么、属于哪个 team、请继续工作”。
+
+      这不是万能方案，但它表达了一个可迁移原则：当你会做对话级压缩时，**关键身份与约束需要被重新注入**，
+      否则 agent 可能在“失忆”后重新定义自己的目标。
+
+  - type: md
+    title: 动手练习：创建任务看板，让两个队友自动认领
+    body: |
+      1) 运行：
+
+      ```bash
       python agents/s11_autonomous_agents.py
       ```
-      
-      可以尝试的提示:
-      
-      1. `Create 3 tasks on the board, then spawn alice and bob. Watch them auto-claim.`
-      2. `Spawn a coder teammate and let it find work from the task board itself`
-      3. `Create tasks with dependencies. Watch teammates respect the blocked order.`
-      4. 输入 `/tasks` 查看带 owner 的任务看板
-      5. 输入 `/team` 监控谁在工作、谁在空闲
+
+      2) 在看板上创建 3 个任务（可以用上一课的 task 工具，或直接写 JSON 文件），然后 spawn 两个队友。
+
+      3) 观察：
+      - 队友是否会进入 idle 并开始轮询？  
+      - 是否会自动认领一个 `pending + 无 owner + 无 blockedBy` 的任务？  
+      - 认领后 `.tasks/task_*.json` 是否出现 owner 与 in_progress？  
+      - 在 `/tasks` 视图里，任务是否被正确标注 owner？
+
+      4) 微改动（建议）：
+      - 把 `POLL_INTERVAL` 改小或改大，观察自治反应速度与资源消耗的权衡。  
+      - 在 claim 时额外写入一个 `claimed_at` 时间戳，观察这是否有助于调试与审计。
 
   - type: md
-    title: 动手练习（本地运行）
+    title: 原文阅读
     body: |
-      如果你还没有配置运行环境，请先完成《导论》里的准备步骤。
-      
-      本课建议最小实践：
-      
-      ```sh
-      python agents/s11_autonomous_agents.py
-      ```
-      
-      你可以把本课当成一个小实验：
-      
-      1) 先按文档里的 `试一试` 跑通一次（确保能复现）。
-      2) 再做一次**微改动**（例如：添加一个新的提示、改一个阈值、加一个危险命令拦截），观察行为差异。
-      
-      检查点（你应该能回答）：
-      
-      - 这节课新增的“机制”是什么？它解决了什么具体失败模式？
-      - 这套机制的状态/真实来源是什么（内存、messages[]、文件系统、线程）？
+      - 日期：2026-02-26（仓库快照）
+      - 来源：shareAI-lab/learn-claude-code（MIT，commit: ff8acd8）
+      - 建议：对照阅读 WORK/IDLE 两阶段的控制流、scan_unclaimed_tasks 的过滤条件、claim_task 的写入逻辑、以及 identity block 的插入条件；同时注意 `_claim_lock` 只覆盖单进程。
+
+  - type: url
+    title: "上游文档：s11 Autonomous Agents"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/docs/zh/s11-autonomous-agents.md
+    mode: open
+
+  - type: url
+    title: "上游代码：agents/s11_autonomous_agents.py"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/agents/s11_autonomous_agents.py
+    mode: open
 
   - type: md
-    layout: inline
+    title: 回到开头的问题：一些提示（Hints）
     body: |
-      本课在上游仓库中的位置：
-      
-      - 文档：`docs/zh/s11-autonomous-agents.md`
-      - 代码：`agents/s11_autonomous_agents.py`
-      
-      上游仓库：`https://github.com/shareAI-lab/learn-claude-code`
+      1) 自治的工程含义是：任务来源外置（inbox/task board），认领规则稳定可重复；不是让模型凭空发明目标。  
+      2) WORK/IDLE 两阶段把“推理”与“等待事件”分开：工作时调用 LLM，空闲时轮询外部状态并在有新工作时恢复。  
+      3) auto-claim 的本质是对共享状态的写入：owner + in_progress；避免抢任务需要互斥与更强的原子认领（单进程 lock 只是教学近似）。  
+      4) 身份重注入解决的是“压缩/重置后的角色遗忘”：当上下文变短时，关键身份与约束需要显式写回 messages。

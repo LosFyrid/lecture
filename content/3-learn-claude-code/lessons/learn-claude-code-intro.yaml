@@ -1,103 +1,114 @@
 id: learn-claude-code-intro
-title: "导论：从 0 到 1 构建 nano Claude Code-like agent（学习方式与环境准备）"
+title: "导论：如何用 12 个“可运行机制”搭出一个终端编程 Agent"
 summary: |
-  这是一门项目驱动、递进式的 coding agent 课程：从最小 while 循环开始，逐步加入工具分发、计划、子智能体、技能按需加载、上下文压缩、任务持久化、团队协作与 worktree 隔离。
-
-  说明：本课程站内提供讲义与关键代码片段；要完成“动手练习”，请在本地 clone 上游仓库并运行对应脚本。
+  这是一门项目驱动课程：从最小 agent loop 开始，每一课只增加一个机制（工具路由、可见计划、子智能体隔离、按需技能、上下文压缩、任务落盘、后台执行、团队协议、自治与 worktree 隔离）。
+  本导论说明学习方式、边界与环境准备，帮助你把后续 12 课当作“可复现的小实验”来学。
 items:
   - type: md
-    title: 你将学到什么
+    title: 导入：你将要解决的问题
     body: |
-      学完本 Track，你应该能够：
+      如果你只把 LLM 当作“更聪明的代码生成器”，你会卡在一个很现实的地方：它很会说，但它不一定能把事情做完。
 
-      - 建立一个清晰的心智模型：**coding agent = LLM（决策）+ tools（行动）+ orchestration（控制与状态）**。
-      - 亲手跑通一个从 0 到 1 的最小实现，并理解每一节课“只新增了一个机制”的设计方法。
-      - 识别长任务/并发/协作时的典型失败模式（上下文污染、状态丢失、并行改动互相干扰），并掌握对应的最小工程解法。
+      这门课想训练的是另一种能力：**把模型放进一个可执行系统里**，让它能在真实项目环境中读取文件、运行命令、修复错误，并把过程组织成可持续迭代的闭环。
+
+      开始之前，先带着这几个问题：
+
+      1) coding agent 的“最小骨架”是什么？哪些东西是可选层？  
+      2) 为什么这门课坚持“每课只新增一个机制”？这种拆法在工程迭代里意味着什么？  
+      3) 这套实现哪些地方是教学简化，哪些地方可以迁移到真实系统？  
+      4) 在本地运行 agent 时，最容易踩的安全坑是什么？
 
   - type: md
-    title: Roadmap（12 节递进课）
+    title: 课程结构：12 课递进，但 loop 始终不变
     body: |
-      本课程按 s01 → s12 递进，每一课叠加一个机制（循环本身始终不变）：
+      上游仓库把一个终端编程 agent 拆成 12 个可运行的脚本（s01→s12）。
+      课程的设计意图是：**循环（loop）始终不变，变化的是你每一节课叠加的机制**。
 
-      - s01：Agent Loop（最小 while 循环）
-      - s02：Tools（dispatch map，多工具分发）
-      - s03：TodoWrite（可见计划 + nag 提醒）
-      - s04：Subagent（进程隔离 = 上下文隔离）
-      - s05：Skills（按需加载 SKILL.md）
-      - s06：Compact（上下文压缩：策略性遗忘）
-      - s07：Tasks（文件持久化任务系统 + 依赖图）
-      - s08：Background Tasks（后台执行 + 通知队列）
-      - s09：Agent Teams（队友 + JSONL 邮箱）
-      - s10：Team Protocols（request_id + FSM：关机 & 计划审批）
-      - s11：Autonomous Agents（轮询-认领-工作-重复）
-      - s12：Worktree + 任务隔离（控制面/执行面分离）
+      你可以把它看成“搭积木”：
+      - s01-s02 先把闭环与工具路由固定下来（能跑通、能扩展）；  
+      - s03-s06 处理“多步任务的认知负担”（计划、隔离、按需知识、上下文压缩）；  
+      - s07-s08 处理“跨轮次的可持续性”（状态落盘、后台执行）；  
+      - s09-s12 处理“多执行体协作与并行风险”（队友、协议、自治、worktree 隔离）。
 
-      建议学习方法（强烈推荐）：
+      每一节课都可以被当作一个独立实验：你能明确指出“本课新增的机制是什么”，并在代码中定位它。
 
-      1) 读讲义（先理解“本课新增的机制”）  
-      2) 跑脚本（确保可复现）  
-      3) 做一次微改动（观察差异，写下结论）
+  - type: md
+    title: 学习方式：把每一课当成可复现的小实验
+    body: |
+      这类课程最容易变成“读完觉得懂、真正写时不会”。一个更稳的学习方式是把每一课当作小实验：
+
+      1) 先读 lesson：把“本课新增机制”用一句话写下来。  
+      2) 再跑脚本：确认你能稳定复现（同一提示能跑出相似轨迹）。  
+      3) 做一个微改动：改一个阈值、改一个输出格式、加一个小工具或一个约束。  
+      4) 记录观察：行为变化来自哪里？变化是否符合你的预期？
+
+      这样学的好处是：你不会只记住结论，而是掌握“机制→行为→边界”的映射。
 
   - type: md
     title: 环境准备（本地运行）
     body: |
-      运行练习需要你在本地 clone 上游仓库并配置环境变量。
+      上游项目是 Python 实现。你需要：
+      - Python 环境  
+      - 一个可用的模型 API key（示例代码使用 Anthropic SDK，也支持设置兼容的 base_url）
 
-      1) clone + 安装依赖：
+      基本步骤（示例）：
 
-      ```sh
+      ```bash
       git clone https://github.com/shareAI-lab/learn-claude-code
       cd learn-claude-code
       pip install -r requirements.txt
-      ```
-
-      2) 配置 `.env`（按需选择模型与供应商）：
-
-      ```sh
       cp .env.example .env
-      # 编辑 .env，至少填写：
-      # - ANTHROPIC_API_KEY=...
-      # - MODEL_ID=...
-      ```
-
-      3) 从 s01 开始跑：
-
-      ```sh
+      # 编辑 .env：至少配置 API key 与模型 ID
       python agents/s01_agent_loop.py
       ```
 
-      备注：
-      - 仓库使用 `anthropic` SDK + `python-dotenv`；依赖很轻。
-      - `.env.example` 里也给了 Anthropic-compatible 的 `ANTHROPIC_BASE_URL` 示例（可选）。
-
-  - type: html
-    title: 安全与边界（重要）
-    note: 这是学习型实现，不是生产级工具链。请把“安全”当作练习的一部分。
-    body: |
-      <div style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:12px; line-height:1.65;">
-        <div style="font-weight:600; margin-bottom:6px;">你应该默认遵守的安全规则</div>
-        <div>1) <b>不要把真实密钥写进代码或提交到仓库</b>：只放在本地 .env。</div>
-        <div>2) <b>把 agent 视为“会犯错的自动化操作者”</b>：任何可写文件/可执行命令都可能造成不可逆影响。</div>
-        <div>3) <b>优先在隔离目录/沙盒仓库里做实验</b>：不要直接让它改你的主项目。</div>
-        <div>4) <b>先读每节课新增的机制，再运行</b>：避免“看不懂就先跑”的不可控行为。</div>
-      </div>
+      备注：如果你希望把课程内容“锁定到一个固定版本”，建议在课程发布/学习时使用特定 commit，而不是跟随 main 分支漂移。
 
   - type: md
-    title: 范围说明（你会发现缺了哪些“生产机制”）
+    title: 安全边界：把 agent 当作“会犯错的自动化操作者”
     body: |
-      上游仓库明确声明：这是 0→1 的学习型项目，为保证路径清晰，有意简化或省略了部分生产机制，例如：
+      这些脚本会执行命令、读写文件。即使代码里有一些危险命令拦截，它们仍然是学习型实现。
 
-      - 更完整的事件/Hook 总线（PreToolUse、SessionStart/End 等）
-      - 基于规则的权限治理与信任流程
-      - 更完整的会话生命周期（resume/fork）与 worktree 生命周期
-      - 完整 MCP 运行时细节（transport/OAuth/资源订阅/轮询）
+      一个更稳的安全默认是：
+      - 在隔离目录（或专门的练习仓库）里运行，不要直接对真实项目动手  
+      - 在第一次运行每个脚本前，先读一遍新增的工具与执行边界  
+      - 把密钥留在本地环境变量/`.env`，不要写进代码与提交记录
 
-      你应该把它当成“最小可教实现”：先把机制学会，再去补生产级的复杂性。
+      你可以把“发现潜在危险并补上边界”当成练习的一部分：这本身也是 agent 工程的重要能力。
 
   - type: md
-    layout: inline
+    title: 范围说明：这不是生产级实现（刻意缺省了很多东西）
     body: |
-      上游仓库：`https://github.com/shareAI-lab/learn-claude-code`
+      上游仓库明确把自己定位为 0→1 的教学实现，因此会刻意省略部分生产机制，例如：
+      - 更完整的事件/Hook 总线（PreToolUse、SessionStart/End 等）  
+      - 更严格的权限治理与信任流程  
+      - 更完整的会话生命周期（resume/fork）  
+      - 完整的 MCP 运行时细节
 
-      许可证：MIT
+      这些缺省并不表示“不重要”，只是为了让你先看清主干：loop、状态、隔离与协作协议。
+      当你把这些模式迁移到真实系统时，上述机制通常会重新变得重要。
 
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-02-26（仓库快照）
+      - 来源：shareAI-lab/learn-claude-code（MIT，commit: ff8acd8）
+      - 建议：先通读 README 的“核心模式/范围说明/学习路径”，再开始 s01；这样你会更容易把每一课放回同一条主线上理解。
+
+  - type: url
+    title: "上游仓库：shareAI-lab/learn-claude-code"
+    url: https://github.com/shareAI-lab/learn-claude-code/tree/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9
+    mode: open
+
+  - type: url
+    title: "上游 README（中文）"
+    url: https://github.com/shareAI-lab/learn-claude-code/blob/ff8acd81a4a9aae65eaa2e8ed5c867d119bb0ef9/README-zh.md
+    mode: open
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) 最小骨架是 agent loop + 工具执行 + 结果回流；其余（规划、压缩、持久化、协作）是为了让它在长任务与真实环境中可持续。  
+      2) “每课只加一个机制”是一种工程迭代策略：让你能把行为变化归因到单一改动，也更容易做回归与调参。  
+      3) 教学实现可迁移的是结构与边界（路由、隔离、协议、状态外置），不保证具体阈值/实现细节就是生产最佳解。  
+      4) 本地运行的最大风险来自执行面（命令与写文件）；隔离工作区、审慎管理密钥、以及逐课理解新增机制，是更稳的默认。
