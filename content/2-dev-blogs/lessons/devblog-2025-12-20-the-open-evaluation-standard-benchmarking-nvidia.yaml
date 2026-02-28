@@ -1,34 +1,179 @@
 id: devblog-2025-12-20-the-open-evaluation-standard-benchmarking-nvidia
-title: "The Open Evaluation Standard: Benchmarking NVIDIA Nemotron 3 Nano with NeMo Evaluator"
+title: "开放可复现评估配方：configs/prompts/harness/artifacts"
 summary: |
-  文章讨论的不是“某个模型分数有多高”，而是**为什么需要开放、可复现的评估配方（evaluation recipe）**：很多评估只给最终分数，不给 configs/prompts/harness 版本/运行设置/logs；而这些细小差异足以导致结果不可比，甚至误把“评测条件变化/数据泄漏”当成“模型进步”。
+  这篇文章讨论的重点不是“Nemotron 3 Nano 分数有多高”，而是为什么评估需要像工程一样开放与可复现：只公布最终分数远远不够，configs、prompts、harness 版本、运行时设置与日志的细微差异都足以让结果不可比。原文用 NeMo Evaluator 的“公开 recipe”演示了一套端到端可复跑流程，并强调开放评估追求的是方法学一致性（methodological consistency），而不是每次运行都得到 bit-wise 完全相同的数字。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2025-12-20
-      - 来源：HuggingFace
-      - URL：https://huggingface.co/blog/nvidia/nemotron-3-nano-evaluation-recipe
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/HuggingFace/Evaluation_and_Observability/2025-12-20__the-open-evaluation-standard-benchmarking-nvidia-nemotron-3-nano-with-nemo-evalu__047189296b.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      当你看到一个模型的 benchmark 分数时，一个更重要的问题往往是：**你相信它吗？**
+
+      在 2025-2026 年的模型迭代节奏下，评估更容易出现两类“误判”：
+
+      - 分数变了，但原因其实是评测条件变了（prompt 变了、harness 版本变了、runtime 参数变了）。  
+      - 分数变好了，但你很难判断是“模型真的进步”还是“更会刷榜/训练数据泄漏/评测实现细节差异”。
+
+      这篇文章试图把问题从“谁的分数高”拉回到“评测应该怎么做才可信”。读完后，你应该能回答：
+
+      1) 什么是 evaluation recipe？为什么只给最终分数会让复现几乎不可能？  
+      2) 一个可复现的 recipe 至少应该公开哪些东西（configs/prompts/harness/runtime/logs/artifacts）？  
+      3) 为什么评测工具需要与 inference backend 解耦？这解决的是什么对比公平性问题？  
+      4) 当复现实验出现“分数小幅波动”时，哪些波动是正常的？怎样判断你复现的是同一套方法学？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：recipe、harness、artifacts 与 provenance
     body: |
-      - 主题：open & reproducible eval recipes、evaluation config/versioning、backend decoupling、audit artifacts/logs、CLI workflow
-      - 要点：
-        - 文章讨论的不是“某个模型分数有多高”，而是**为什么需要开放、可复现的评估配方（evaluation recipe）**：很多评估只给最终分数，不给 configs/prompts/harness 版本/运行设置/logs；而这些细小差异足以导致结果不可比，甚至误把“评测条件变化/数据泄漏”当成“模型进步”。
-        - “开放评估”的定义：公开的不只是分数，还包括端到端方法论与产物——工具链、配置、prompts、运行参数、日志与结构化结果，让任何人可以复跑并审计。
-        - NeMo Evaluator 的设计理念（可迁移）：
-          - 用单一一致的评估系统定义 benchmark/prompt/config/runtime，一次写好，多模型复用，避免“每次换模型评测脚本就变”；
-          - 方法论与推理后端解耦：同一评估配置可以对接不同 inference backend（本地/托管/第三方），使“换基础设施”不影响指标口径；
-          - 面向规模化：从单 benchmark 到完整 model card 套件与周期性复测；
-          - 审计性：每次 run 产出结构化 artifacts + logs，便于定位异常与复现实验。
-        - 文中以 Nemotron 3 Nano 的公开 recipe 为例，展示了一套可复跑的 CLI 工作流（安装 launcher、设置访问 token、配置 endpoint、dry-run、全量跑、`limit_samples` 快速抽样、按 benchmark 子集运行、查看 status/logs），并定义输出目录的标准布局（artifacts/results.json + logs/stdout.log）。
-        - 对 agent/模型工程的可迁移点：把 eval 当作“基础设施”来做——配置化、版本化、可审计、与推理后端解耦；并公开 recipe 来降低社区比较与复现成本。
+      **Evaluation recipe（评估配方）**  
+      不是一条“跑一下 benchmark”的命令，而是一套完整方法学：选择了哪些任务、用了什么 prompt 模板、如何解码、重复几次、怎么打分、用什么 judge、失败重试如何处理、结果如何落盘。
+
+      **Harness（评估执行框架）**  
+      负责把“任务定义 + 模型调用 + 计分逻辑 + 运行时策略（并行、超时、重试）”编排成一条可重复的流水线。
+
+      **Artifacts / Logs（产物与日志）**  
+      原文强调开放评估必须带产物：每个任务的结构化结果文件（例如 `results.json`）、stdout/运行日志、以及能追溯“这次跑的是哪份配置”的元信息。
+
+      **Provenance（溯源）**  
+      你能追踪“这个分数是怎么来的”：具体 config、prompt、harness 版本、模型 endpoint、以及运行参数。没有溯源，分数就很难被独立验证。
+
+  - type: md
+    title: 为什么需要“开放评估标准”：分数不可比的根因
+    body: |
+      原文的论点很直接：大多数模型评估缺少关键细节。
+
+      只公布一个总分会隐藏大量会影响结果的变量，例如：
+
+      - configs（任务选择、版本、抽样策略）  
+      - prompts（模板、格式、few-shot 示例）  
+      - harness 版本（评分实现、解析细节、bug 修复）  
+      - runtime settings（并行度、超时、重试、解码参数）  
+      - logs（你甚至无法确认是否跑到一半失败/跳过了任务）
+
+      在这种情况下，“分数提升”不一定代表“模型进步”，可能只是评测条件更有利或更不透明。
+
+  - type: md
+    title: NeMo Evaluator 的五个工程原则（可迁移）
+    body: |
+      原文用 NeMo Evaluator 来承载“开放 recipe”的做法，并总结了几条工程原则（这里按可迁移性重述）：
+
+      1) **单一一致的评估系统**：把 benchmark、prompt、配置、runtime 语义统一进一套系统，避免每个模型一套脚本导致“口径悄悄变”。  
+      2) **方法学与推理后端解耦**：同一份配置可以对接 hosted endpoint、本地部署或第三方 provider；基础设施变了，但评测口径不该跟着变。  
+      3) **可扩展到长期工作流**：从快速单 benchmark 验证，到完整 model card 套件，再到周期性复测。  
+      4) **可审计性（auditability）**：每次运行都产出结构化结果与日志，让你能调试、追溯、复核。  
+      5) **共享标准**：把 recipe 作为“公共参考方法学”，让社区能用同一套配置做可比对的比较。
+
+  - type: md
+    title: 复现工作流（原文示例）：从安装到产物目录
+    body: |
+      原文用 Nemotron 3 Nano 的公开配置演示了一条“从零复现”的工作流。你不必逐条记命令，但需要理解“它为什么可复现”。
+
+      **1) 安装 launcher**
+
+      ```bash
+      pip install nemo-evaluator-launcher
+      ```
+
+      **2) 设置必要的环境变量**  
+      原文列出：NVIDIA endpoint 访问、Hugging Face 权限、以及某些 judge-based 任务的 key（例如 HLE 这类需要 judge 的基准）。
+
+      **3) 指定评测目标（endpoint）**  
+      配置里把 “model_id + url + api_key_name” 写清楚；并允许把同一份评测配置指向本地 endpoint 或别的 provider。
+
+      **4) Dry-run 预览**
+
+      ```bash
+      nemo-evaluator-launcher run --config local_nvidia_nemotron_3_nano_30b_a3b.yaml --dry-run
+      ```
+
+      **5) 跑全量 suite / 快速抽样 / 指定子集**  
+      原文提供两类常用技巧：
+      - `limit_samples`：先用少量样本快速验证 pipeline 通不通  
+      - `-t`：只跑某个 benchmark（或某一类 benchmark）
+
+      **6) 查看执行状态与日志**
+
+      ```bash
+      nemo-evaluator-launcher status
+      nemo-evaluator-launcher logs <job-id>
+      ```
+
+      **7) 输出目录结构（非常关键）**  
+      原文给出一种标准布局：每个 task 产出 `results.json`，并有统一的 stdout.log，方便审计与对比。
+
+      ```text
+      results_nvidia_nemotron_3_nano_30b_a3b/
+      ├── artifacts/
+      │   └── <task_name>/
+      │       └── results.json
+      └── logs/
+          └── stdout.log
+      ```
+
+      这套结构的价值在于：你不仅拿到“分数”，还拿到“分数是怎么来的”。
+
+  - type: md
+    title: 如何解释“复现时分数有小波动”：目标是方法学一致性
+    body: |
+      原文专门提醒：复现实验中出现小幅波动是常见的，它往往来自 LLM 的概率性与评测链路中的非确定性。
+
+      它列举了几类常见来源：解码设置、重复试验、judge-based 评分、并行执行、以及不同 serving 基础设施导致的差异。
+
+      因此开放评估追求的不是“每次都得到完全相同的数字”，而是“你能确认自己跑的是同一套方法学”。原文给出了一组核对点（可作为你的复现自检清单）：
+
+      - Configuration：是否使用了公开的 YAML？是否改动过？改动有没有记录？  
+      - Benchmark selection：任务/版本/prompt 模板是否一致？  
+      - Inference target：是否评测的是同一个模型与 endpoint（包括 chat template 行为、推理设置等）？  
+      - Execution settings：重复次数、并行度、超时、重试策略是否一致？  
+      - Outputs：artifacts 与 logs 是否完整、结构是否符合预期？
+
+  - type: md
+    title: 迁移到 agent 评估：把“recipe 思维”用在你的系统上
+    body: |
+      虽然原文是模型评测，但它对 agent-builder 也很有启发：你可以把一个 agent 的离线评测也当成 recipe。
+
+      例如，一个“文档 agent”的可复现 recipe 可能需要冻结：
+      - prompt 模板（system + tool guidance + 输出格式）  
+      - 工具版本与配置（检索器、解析器、RAG 参数）  
+      - 运行时语义（并行/超时/重试/缓存）  
+      - judge/打分口径（规则、LLM judge、人工抽检）  
+      - artifacts（trace、每步中间产物、最终结构化结果）
+
+      当你能把这些写成“可复跑的配方”，才更容易区分：是模型变了、工具变了、还是系统口径变了。
+
+  - type: md
+    title: 练习：写一份你的 evaluation recipe（最小版本）
+    body: |
+      选一个你最关心的任务（模型或 agent 都可以），写一份最小 recipe（1 页即可）：
+
+      1) 任务集合：benchmark 列表/版本/样本数  
+      2) prompts：模板、few-shot 示例、输出格式  
+      3) harness：评分逻辑、重试/超时、并行度  
+      4) inference：模型版本、endpoint、解码参数  
+      5) artifacts：你要落盘哪些文件（results.json / logs / traces / 配置快照）  
+
+      检验标准：一个不了解你系统的人，能否只靠这份 recipe 跑出“方法学一致”的结果？
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2025-12-20
+      - 来源：HuggingFace（NVIDIA 合作内容）
+      - 建议：阅读原文时重点抓两段：1) “为什么只给分数不够”的动机；2) 复现工作流与结果解释（为什么允许小波动，如何核对方法学一致性）。如果你要落地，尤其值得对照原文给出的 artifacts/logs 目录结构与配置项检查单。
+
+  - type: url
+    title: "原文：The Open Evaluation Standard: Benchmarking NVIDIA Nemotron 3 Nano with NeMo Evaluator"
+    url: https://huggingface.co/blog/nvidia/nemotron-3-nano-evaluation-recipe
+    mode: open
 
   - type: md
     title: 时效性提示（可能过时）
     body: |
-      文中 NeMo Evaluator 的 CLI/配置字段/输出目录结构可能随版本演进。
-      本课关注“开放可复现评估配方”的工程原则：配置/提示/版本化、与推理后端解耦、产出可审计 artifacts+logs。
+      原文中的 benchmark 列表版本、NeMo Evaluator 的 CLI 参数与配置字段可能会随时间演进。
+      更可迁移的是“公开 recipe”这一工程范式：把 configs/prompts/harness/runtime/logs/artifacts 明确版本化并公开，确保结果可审计、可比较、可复跑。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) evaluation recipe 的价值在于“可复跑 + 可审计”：它把分数背后的关键变量（配置、prompt、harness、运行时语义、日志与产物）都显式化，避免“黑箱分数”。  
+      2) 评测工具与推理后端解耦能让你在更换基础设施时仍保持口径一致，提升跨模型/跨 provider 的公平比较。  
+      3) 复现时的小波动往往来自非确定性（解码/重复/judge/并行/serving）；开放评估追求的是方法学一致性，而不是每次得到完全相同数字。  
+      4) 把这套 recipe 思维迁移到 agent 评估时，关键是冻结并记录：prompt、工具/参数、运行时策略、打分口径，以及可回放的 artifacts（traces/结果/日志）。

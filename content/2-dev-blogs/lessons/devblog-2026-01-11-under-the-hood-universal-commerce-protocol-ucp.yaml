@@ -1,31 +1,149 @@
 id: devblog-2026-01-11-under-the-hood-universal-commerce-protocol-ucp
-title: "Under the Hood: Universal Commerce Protocol (UCP)"
+title: "Capability Manifest：用 .well-known discovery 做协议化集成与发现"
 summary: |
-  UCP 的问题定义很“agent 工程化”：传统商业系统存在 N×N 集成瓶颈（每个 agent surface 都要和每个商家后端做 bespoke 对接）；协议化的目标是把“发现→加购→支付→订单管理”等能力抽象成可发现的 primitives，让 agent 能动态对接。
+  这篇文章用 UCP（Universal Commerce Protocol）展示了一种很“agent 工程化”的互操作思路：把业务系统的能力（capabilities）协议化，并通过 `/.well-known/ucp` 的标准 JSON manifest 让 agent 动态发现“你支持什么能力、怎么调用、用什么支付配置”。它试图解决传统商业系统的 N×N 集成瓶颈，并把几个对 agent 系统很可迁移的机制讲得很具体：profile 驱动的 discovery、能力层与传输层（API/MCP/A2A）解耦、以及交易类调用必须具备的幂等与审计字段（request-id、idempotency-key、签名等）。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2026-01-11
-      - 来源：Google
-      - URL：https://developers.googleblog.com/under-the-hood-universal-commerce-protocol-ucp
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/Google/Developer_Guides/2026-01-11__under-the-hood-universal-commerce-protocol-ucp__1fcf9eaf10.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      当 agent 需要和大量外部系统协作时，一个长期障碍是集成复杂度：每接一个服务就要写一套胶水代码；服务越多，集成越像 N×N 的组合爆炸。
+
+      UCP 把这个问题放在“agentic commerce”场景里：用户希望在同一段对话里完成“搜索/比较 → 下单 → 支付 → 订单管理”，但企业后端与支付系统长期是碎片化的。
+
+      这节课不要求你做电商，但希望你能从 UCP 学到一个更通用的协议设计框架：
+
+      1) 什么是 capability manifest？为什么它能显著降低集成复杂度？  
+      2) 为什么要用 `/.well-known/...` 做 discovery？manifest 里通常需要包含哪些信息？  
+      3) 为什么“能力层”要与“传输层”解耦（API vs MCP vs A2A）？它带来什么工程弹性？  
+      4) 对交易类调用（可能重试、可能并发、可能失败重放），为什么幂等键与 request-id 是刚需？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：service、capability、manifest 与 profiles
     body: |
-      - 主题：capability manifest、.well-known discovery、protocol-based integration、A2A/MCP/API transports、profiles、idempotency & signatures
-      - 要点：
-        - UCP 的问题定义很“agent 工程化”：传统商业系统存在 N×N 集成瓶颈（每个 agent surface 都要和每个商家后端做 bespoke 对接）；协议化的目标是把“发现→加购→支付→订单管理”等能力抽象成可发现的 primitives，让 agent 能动态对接。
-        - 关键机制是“能力（capability）+ 发现（discovery）”：
-          - 商家暴露自己支持的服务与 capabilities（如 product discovery、checkout、discounts 等），并可通过 extensions 扩展能力；
-          - agent 通过 profiles 动态发现商家 capabilities 与支付选项，而不是硬编码集成。
-        - 一个对 agent 互操作很有借鉴意义的做法：商家在 `/.well-known/ucp` 提供标准 JSON manifest（版本、服务、capabilities、endpoint bindings、支付配置等），agent 通过拉取 manifest 实现**动态发现、版本化与配置协商**。
-        - 协议支持多种 transport（对课程的可迁移点）：同一 capability 可以绑定到 REST API 或 MCP binding，也可以通过 A2A；也就是说，“能力层”与“传输层”解耦，便于在不同系统里落地。
-        - 支付架构的抽象：把 payment instruments（用户用什么付）与 payment handlers/processors（由谁处理）分离，支持多支付提供方扩展。
-        - 文中 walkthrough（可迁移的工程要点）：
-          - 用 manifest discovery 启动对接；
-          - 用 capability 版本与请求头传递 agent profile；
-          - 用 request-signature、idempotency-key、request-id 等机制让“agent 发起的交易类调用”可审计、可重放防抖、可安全验证。
-        - 即使你不做“电商 agent”，这篇文章也提供了一个可复用的互操作蓝图：把后端能力以标准 manifest 暴露，agent 通过 discovery+版本协商+多 transport binding 动态接入，从而避免“每加一个工具/服务都要写一套定制 glue code”。
+      **Service（服务域）**  
+      原文把业务支持的“领域”称为 services（例如购物相关的 service）。它像一个命名空间：在这个服务域下，你会暴露一组能力。
+
+      **Capability（能力原语）**  
+      能力是最核心的“功能积木”，例如 product discovery、checkout、order management。  
+      原文还提到 capability 可以有 extensions（扩展），用来增强能力（例如折扣/优惠券）。
+
+      **Manifest（能力清单）**  
+      一份标准 JSON 文档，描述：协议版本、支持的 services/capabilities、以及这些 capabilities 的 endpoint bindings（怎么调用）。
+
+      **Discovery via `/.well-known/ucp`**  
+      业务方在固定路径发布 manifest，agent 只要知道 server base URL，就能通过一个 GET 请求拉到“我能做什么、怎么做”。
+
+      **Profiles（agent profile）**  
+      原文提到 agent 可以携带 profile，用于 discovery 与能力协商：同一个业务方可能对不同类型 agent/不同场景暴露不同能力或配置。
+
+  - type: md
+    title: 问题定义：为什么会出现 N×N 集成瓶颈
+    body: |
+      原文给出的痛点很直接：
+
+      - 消费端“对话式体验”希望从研究到购买无缝衔接，并支持实时库存、动态定价与即时交易。  
+      - 但传统基础设施要求：每个消费端 surface（某个聊天入口、某个 agent 平台）都要和每个商家后端做定制对接。
+
+      当 surface 数量与商家数量增长时，集成成本就接近 N×N，并且很难规模化。
+
+      UCP 的目标是把“全链路商业旅程”抽象成一套共同语言与功能原语，让集成从“每对每”降级成“各自对协议一次”。
+
+  - type: md
+    title: 关键机制 1：`.well-known` manifest = 动态发现 + 版本化 + 配置协商
+    body: |
+      原文把 discovery 设计得非常工程化：商家在 `/.well-known/ucp` 提供标准 JSON manifest。
+
+      这带来三件事：
+
+      1) **动态发现**：agent 不需要硬编码“这个商家有哪些 API”，它可以运行时拉 manifest 决定下一步。  
+      2) **版本化**：manifest 里携带协议版本、服务/能力版本，使得能力演进时可以协商兼容性。  
+      3) **配置协商**：manifest 里还会包含 endpoint bindings 与支付配置，agent 可以选择合适的调用方式与参数。
+
+      原文甚至给出了一条最小操作：对着业务 server 做一个 GET `/.well-known/ucp`，你就能看到它公开的 services/capabilities。
+
+  - type: md
+    title: 关键机制 2：能力层与传输层解耦（API / MCP / A2A bindings）
+    body: |
+      UCP 的一个可迁移设计是：把“能力是什么”与“能力怎么传输”分开。
+
+      原文明确支持多种 transports：
+      - 传统 REST API  
+      - MCP binding（把 capability 暴露为 tools）  
+      - A2A（Agent2Agent）等其它协议
+
+      这意味着同一能力（例如 checkout）可以同时有 API binding 和 MCP binding；业务方与 agent 平台可以根据自身栈选择合适的 binding，而不需要改变“能力语义”本身。
+
+      对非电商场景也一样：如果你在做企业内部 agent 工具生态，“能力层/传输层解耦”能显著降低迁移成本——你可以先用 HTTP API 起步，后续再提供 MCP 工具面，而不必重写能力定义。
+
+  - type: md
+    title: 关键机制 3：交易类调用需要幂等与审计字段（agent 时代更重要）
+    body: |
+      agentic 工作流里，“调用一次就成功”不是常态：网络超时、服务端重试、模型重复发起请求都可能发生。
+
+      原文在示例请求里使用了多种请求头/字段来应对这一现实：
+
+      - `request-id`：给每次请求一个可追踪 ID（审计、排障、对账）  
+      - `idempotency-key`：保证同一逻辑操作的重复请求不会造成重复副作用（避免重复下单/重复扣款）  
+      - `request-signature`：用于请求签名/验证（避免被伪造或篡改）
+
+      这些机制的可迁移性很强：只要你的 agent 会触发“有副作用”的动作（发邮件、改权限、部署、下单），幂等与审计字段就应该是协议的一部分，而不是业务代码里零散的补丁。
+
+  - type: md
+    title: 支付抽象的一个启发：instruments vs handlers
+    body: |
+      原文还提到一个“面向生态扩展”的抽象：把支付架构拆成两类对象：
+
+      - **Instruments（支付工具/凭证）**：用户用什么付（例如某种钱包、某张卡）  
+      - **Handlers（支付处理方）**：谁来处理（支付处理器/支付服务商）
+
+      这种拆分的工程价值在于：当你要接入多个支付提供方时，可以在不改变“用户选择支付工具”的语义下替换/扩展处理方，从而更容易兼容既有支付基础设施。
+
+  - type: md
+    title: 把思路迁移到通用 agent 工具生态：你可以复用哪些设计
+    body: |
+      抛开电商语义，UCP 的“协议化集成”对 agent-builder 最可迁移的其实是三件事：
+
+      1) **把能力做成 manifest**：让 agent 先发现“有哪些能力”，再决定“调用哪个能力”。  
+      2) **把能力语义与 transport 解耦**：让同一能力既能以 API 形式存在，也能以 MCP tool 形式存在。  
+      3) **把幂等与审计做成协议默认值**：把 request-id/idempotency-key/签名作为“有副作用操作”的标准字段。
+
+      你可以把它理解成：从“硬编码工具列表”走向“动态发现 + 协商 + 可审计调用”。
+
+  - type: md
+    title: 练习：为你的工具服务器设计一个 `.well-known` manifest
+    body: |
+      选一个你熟悉的 agent 工具域（例如：内部工单系统、代码托管、知识库、数据查询），写一份最小 manifest 设计（不用完全照 UCP 字段）：
+
+      1) `version`：协议版本如何演进？  
+      2) `capabilities`：列出 5 个以内的能力原语（每个一句话语义）  
+      3) `bindings`：每个 capability 的调用方式（HTTP endpoint / MCP tool / A2A）  
+      4) `security`：哪些调用必须带 `request-id` 与 `idempotency-key`？签名怎么做？  
+      5) `profiles`：不同 agent profile 是否看到不同能力/不同配额？
+
+      检验标准：把这份 manifest 交给一个新的 agent，它能否在不写定制 glue code 的情况下完成“发现 → 调用 → 处理失败重试”？
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-01-11
+      - 来源：Google
+      - 建议：阅读原文时可以重点对照三个段落：1) N×N 集成瓶颈的动机；2) `/.well-known/ucp` manifest 的结构与示例；3) 示例请求里的 request-id / idempotency-key / signature 等字段如何支撑审计与安全重试。
+
+  - type: url
+    title: "原文：Under the Hood: Universal Commerce Protocol (UCP)"
+    url: https://developers.googleblog.com/under-the-hood-universal-commerce-protocol-ucp
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      UCP 仍在快速演进：字段名、示例代码仓库结构、以及 capability 列表可能会更新。
+      更可迁移的是协议设计骨架：`.well-known` discovery + versioning、capability manifest、能力/传输层解耦、以及交易类调用的幂等与审计默认值。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) capability manifest 的价值在于把“集成知识”从代码里搬到协议里：先发现能力，再选择调用方式，显著降低 N×N glue code。  
+      2) `/.well-known` discovery 让 agent 在只知道 base URL 的前提下拿到版本化能力清单与 bindings，实现动态发现与配置协商。  
+      3) 能力层与传输层解耦让同一能力可以同时以 API/MCP/A2A 暴露，支持不同平台逐步迁移而不改语义。  
+      4) 幂等键、request-id 与签名对 agent 特别重要：因为 agent 更可能重试/并发/重复发起请求；这些字段让“有副作用的动作”可安全重放、可审计对账。

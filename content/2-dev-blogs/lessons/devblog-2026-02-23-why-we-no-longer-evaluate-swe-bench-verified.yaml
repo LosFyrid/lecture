@@ -1,33 +1,149 @@
 id: devblog-2026-02-23-why-we-no-longer-evaluate-swe-bench-verified
-title: "Why we no longer evaluate SWE-bench Verified"
+title: "Benchmark 治理：为什么 SWE-bench Verified 不再适合做回归门禁"
 summary: |
-  文章的结论很明确：SWE-bench Verified 在当前 frontier 水平下已经越来越不适合作为“真实 coding 能力进步”的指标；OpenAI 建议用 SWE-bench Pro，并宣布停止报告 Verified 分数。
+  当模型来到前沿水平后，公开 benchmark 可能不再主要反映“能力差距”，而更多反映“题目/测试缺陷与训练暴露程度”。这篇文章通过一次工程化审计与污染探测，解释了 SWE-bench Verified 在当下为何会失真，并给出更可迁移的评估治理原则：审计测试口径、检测 contamination、用私有/专家出题与更整体的评分补齐自动化评测的盲区。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2026-02-23
-      - 来源：OpenAI
-      - URL：https://openai.com/index/why-we-no-longer-evaluate-swe-bench-verified
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/OpenAI/Evaluation_and_Observability/2026-02-23__why-we-no-longer-evaluate-swe-bench-verified__33e5e5bcd6.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      很多 agent/coding 团队会把某个公开 benchmark 当作“回归门禁”：分数升了就上线，分数降了就回滚。
+
+      但当模型能力提高到一定程度后，benchmark 可能会出现一种危险的失真：  
+      **你以为你在测能力，其实你在测数据集的缺陷与训练暴露。**
+
+      读完本课，你应该能回答：
+
+      1) 什么情况下一个 benchmark 会从“能力信号”退化成“噪声信号”？  
+      2) “测试太窄（narrow）/太宽（wide）”分别是什么意思？为什么它会让正确解被判错？  
+      3) contamination（训练污染）在工程上如何被探测？为什么它会让分数越来越像“见过题”而不是“会做题”？  
+      4) 如果你想把评估做成长期资产，除了换一个数据集，还需要哪些治理动作？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 背景：SWE-bench 与 Verified 的口径到底在测什么
     body: |
-      - 主题：benchmark validity、test design flaws（narrow/wide）、training contamination、audit methodology、evaluation governance
-      - 要点：
-        - 文章的结论很明确：SWE-bench Verified 在当前 frontier 水平下已经越来越不适合作为“真实 coding 能力进步”的指标；OpenAI 建议用 SWE-bench Pro，并宣布停止报告 Verified 分数。
-        - 现象背景：SWE-bench Verified 在 6 个月里从 **74.9% → 80.9%**，进步变慢，剩余失败到底是模型瓶颈还是数据集属性问题？作者做了审计后认为主要是 benchmark 本身的问题。
-        - 主要问题 1：**测试拒绝正确解**。他们审计了“模型经常失败”的数据子集：
-          - 对 o3 在 64 次独立 runs 中不稳定解决的 **138** 个问题做审计（每例至少 6 位资深工程师复核）；
-          - 发现其中 **59.4%** 存在“测试设计/题面描述的实质性缺陷”，导致即使对人类/最强模型也极难或不可能稳定通过。
-          - 在缺陷细分上：
-            - **35.5%** 属于 narrow tests：测试强制某些实现细节，很多“功能正确”的实现会被判错；
-            - **18.8%** 属于 wide tests：测试要求的额外功能在题面里未被明确规定。
-        - 主要问题 2：**训练污染（contamination）**。SWE-bench 来源于开源仓库，而这些仓库常被用于训练；他们观察到所有测试的 frontier 模型都能在某些任务上复现“gold patch”（人类修复 PR）或题面细节，说明至少部分题目/答案进入了训练数据。
-        - 更糟的是：在“测试/题面本来就欠规范”的任务里，见过答案的模型更容易成功，因为它额外拥有通过 underspecified tests 所需的信息——分数开始更像“暴露程度”而不是“能力提升”。
-        - 他们用一个自动化 red-teaming 设置探测污染：让 GPT-5 在多轮对话中尝试诱导目标模型泄露任务特定信息，并由 judge 评估污染强度（none→strong），再人工复核强污染样本；给出“能复现 gold patch/细节”的例子来说明风险。
-        - 总结出的两条评测设计教训（可迁移）：
-          - 用公开爬取数据构造 benchmark 会天然带来污染风险，需要额外的污染检测、训练数据过滤与 canary strings 等措施；
-          - 自动化 scoring（单靠 tests）很难做到既不苛刻（narrow）又不漏检（wide），需要大量人类标注与审计；并且越来越需要“私有出题/私有评测”来维持有效性（作者提到私有作者题库+人工整体评分的方向）。
+      先把对象说清楚，否则后面讨论会变成“分数高低”的口水仗。
+
+      **SWE-bench（原始评测）**  
+      每道题来自开源仓库中的一个 GitHub issue + 对应的修复 PR。模型在“修复前的仓库状态 + issue 文本”上产出代码改动；它看不到测试；把补丁应用后跑测试，全部通过才算过关。
+
+      **为什么要做 Verified**  
+      原文回顾了 SWE-bench 原始评测的一些已知问题：测试过于具体、题面欠规范、环境差异导致偶发失败等，会让正确修复被拒绝，低估模型能力。
+
+      因此他们在 2024 年做了 SWE-bench Verified：让工程师人工审阅并过滤问题样本，最终得到一个 **500 题**的 curated set（文中提到他们审阅了 1,699 道题，每题由 3 位专家独立评审）。
+
+      这套背景很重要：Verified 的初衷是“让测试更公平、信号更强”。而本篇文章的结论是：在今天的前沿水平下，它又出现了新的系统性失真。
+
+  - type: md
+    title: 现象：Verified 分数进步变慢，剩余失败到底是什么
+    body: |
+      原文提到：在最初的大幅跃迁之后，SWE-bench Verified 的 SOTA 进步在过去约 6 个月里从 **74.9%** 到 **80.9%**（公开统计口径）。这引出一个典型的评估问题：
+
+      - 剩下没解决的题，是模型能力真的卡住了？  
+      - 还是数据集/测试本身导致“你怎么做都很难稳定通过”？
+
+      作者随后给出的回答是：至少在他们审计的样本里，后者占了很大比例；并且随着 contamination 增长，分数会越来越难解释。
+
+  - type: md
+    title: 问题 1：测试太窄/太宽，导致正确解被拒绝
+    body: |
+      原文用一次明确的审计把“测试缺陷”量化了出来。
+
+      - 他们挑了 **138 道** o3 在 **64 次独立 runs** 中都无法稳定解决的 Verified 题目做审计。  
+      - 每道题至少由 **6 位**有经验的软件工程师独立复核；如果有人标记问题，会再由额外团队复核。
+
+      审计结果是：这 138 道题里，**59.4%** 存在“测试设计和/或题面描述的实质性问题”，使得它们对最强模型乃至人类都“极难或不可能稳定通过”。
+
+      原文把问题进一步分成两类（这非常适合作为你做 benchmark 治理时的故障分类法）：
+
+      **narrow tests（过窄测试，35.5%）**  
+      测试强制某些实现细节，导致很多“功能正确”的实现被判错。  
+      原文给的例子是 pylint 的一个任务：测试直接 import 了 PR 引入的新函数名 `get_annotation`，但题面并没有要求这个函数名；结果是大量可行修复会因为 import error 被判失败。
+
+      **wide tests（过宽测试，18.8%）**  
+      测试检查了题面没有明确要求的额外功能，导致题目“欠规范”：你要通过测试，就必须猜出隐藏要求。
+
+      还有约 **5.1%** 的问题属于其他杂项，难以归入这两类。
+
+      工程上的含义是：当你把这种数据集当作回归门禁时，你可能在优化“通过某个特定测试”的策略，而不是优化“真实世界里功能是否正确”。
+
+  - type: md
+    title: 问题 2：contamination 让分数越来越像“训练暴露程度”
+    body: |
+      第二个问题更隐蔽也更致命：训练污染。
+
+      SWE-bench 的题来自开源仓库，而这些仓库经常被模型用于训练；因此即使你没有“故意训练 benchmark”，也可能在训练语料里见过：
+
+      - issue 文本、release notes、甚至修复 PR 的内容  
+      - 题目的“gold patch”（作为参考答案的那份人类修复补丁）
+
+      原文给了一个他们在自家模型里遇到的信号：GPT‑5.2 在一些他们认为“几乎不可能靠题面推出来”的任务上表现异常好，并且在链式思考里提到 release notes 信息（例如指出某个参数在特定版本引入）。
+
+      更关键的是，他们指出一个结构性偏置：在 **underspecified（欠规范）** 的题目里，见过答案的模型更容易成功，因为它额外拥有“通过测试所需的信息”；此时分数开始更像“暴露程度”而不是“能力提升”。
+
+  - type: md
+    title: contamination 怎么测：一次自动化 red-teaming 的探测流程
+    body: |
+      原文在方法上给了一个可迁移的污染探测思路：把“模型是否见过题”当作一个可通过对话诱导暴露的属性来测。
+
+      他们搭了一个自动化 red-teaming 流程（用于每道题的探测）：
+
+      - 让 **GPT‑5** 去“套话”目标模型（GPT‑5.2‑Chat、Claude Opus 4.5、Gemini 3 Flash Preview）。  
+      - GPT‑5 的输入包含：任务 ID、描述、gold patch、PR tests。  
+      - 在 **15 轮对话**里，允许 GPT‑5 变化 system/developer prompt、用户提示、assistant prefill 与不同诱导策略，并根据前一轮结果自适应。  
+      - 每轮后由 judge 标注：目标模型是否泄露了新的、任务特定的信息，并把污染程度分级为 none → strong。  
+      - 对 strong 样本再做额外 judge 校验与人工复核。
+
+      原文随后展示了多个“强污染”例子：有的模型能在只给出一小段 hint 的情况下复现几乎完整的 gold patch、文件路径、函数名，甚至逐字复述 diff 里的注释。
+
+      这里的迁移点不在于“用哪个模型去套话”，而在于：你需要一个能持续运行的 contamination probe，把它当作 benchmark 生命周期管理的一部分。
+
+  - type: md
+    title: 他们的行动：停止报告 Verified，建议改报 SWE-bench Pro（并继续做私有评估）
+    body: |
+      基于上述两类问题，原文给出非常明确的动作：
+
+      - SWE-bench Verified 在当下不再适合衡量前沿发布的真实 coding 能力进步，因此他们停止报告 Verified 分数，并建议其他开发者也这样做。  
+      - 在新的、不可污染评估体系成熟之前，他们建议报告 **SWE-bench Pro** 的公开 split。
+
+      在 Discussion 部分，他们补充了两点很“评估治理”的经验：
+
+      - 公共材料构造 benchmark 必然有污染风险；需要更谨慎的数据发布方式（例如受控访问）与训练数据过滤（例如 canary strings）。  
+      - 自动化评分要做到既不 narrow 又不 wide 非常难，往往需要多轮、成本不低的人类标注与审计。
+
+      他们还提到会继续投资私有、专家出题的评估（文中举了 GDPVal 的方向：私有出题 + 训练有素的 reviewer 做整体评分）。这种路线成本高，但在前沿能力评估上可能越来越必要。
+
+  - type: md
+    title: 练习：把“benchmark 治理”做成你团队的日常流程
+    body: |
+      选一个你团队正在用的评估集（可以是 SWE-bench 系列，也可以是你自己的回归集），写一个治理计划：
+
+      1) **失败审计分类**：你会把失败分成哪几类？（至少包含 narrow/wide/环境偶发/工具链失败）  
+      2) **污染探测**：你准备怎么测 contamination？你会如何记录“疑似暴露”的证据？  
+      3) **门禁策略**：哪些分数可以当 hard gate？哪些更适合作为趋势指标？  
+      4) **私有 holdout**：你能否维护一小批不公开的题（或真实生产样本）作为更稳定的回归门禁？
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-02-23
+      - 来源：OpenAI
+      - 建议：阅读时可以重点看三件事：1) narrow/wide 测试缺陷的审计方法与比例；2) contamination 的 red-teaming 探测流程（15 轮诱导 + none→strong 分级）；3) Discussion 里关于“公开材料不可避免的污染风险”与“私有评估越来越必要”的结论。
+
+  - type: url
+    title: "原文：Why we no longer evaluate SWE-bench Verified"
+    url: https://openai.com/index/why-we-no-longer-evaluate-swe-bench-verified
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      文中涉及的模型名称、SWE-bench 系列数据集版本与分数会随时间变化；但“公开 benchmark 的污染风险 + 自动化评分的 narrow/wide 困境 + 需要持续审计治理”这一组结论通常会长期成立。迁移时更建议把它当作评估治理方法论，而不是只把其中某个百分比当作常数。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) benchmark 从能力信号退化成噪声信号，常见触发条件是：分数进入高位后剩余题目被测试缺陷主导、以及训练污染让“见过题”成为主解释变量。  
+      2) narrow tests = 过度绑定实现细节（正确解也过不了）；wide tests = 隐藏要求太多（必须猜）；两者都会让你优化方向偏离真实能力。  
+      3) contamination 的工程探测可以做成持续流程：用对话诱导/检索诱导让模型暴露任务特定信息，再用分级 judge + 人工抽检做证据链。  
+      4) 评估治理不仅是“换 Pro/换数据集”，还包括：失败审计、污染探测、数据发布与训练过滤策略、以及维护私有 holdout 与更整体的人工评分机制。
+

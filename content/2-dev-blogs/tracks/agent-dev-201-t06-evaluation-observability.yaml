@@ -1,27 +1,27 @@
 id: agent-dev-201-t06-evaluation-observability
-title: "Track 6 - Evaluation & Observability：评估框架、Judges、Tracing 与回归"
+title: "Evaluation & Observability：评估、Tracing 与安全"
 description: |
   把评估与可观测写进工程闭环：离线回归 + 在线监控 + tracing + judges；
   理解 benchmark 有效性治理、自治度指标，以及安全 guardrail 的系统化路径。
 modules:
-  - id: m01-rubric-judges
-    title: "把评估写进代码：Rubric/Judges/回归数据集"
+  - id: evals-as-code
+    title: "Evals-as-Code：从 Day 0 建评估"
     lessons:
       - devblog-2026-02-18-monday-service-langsmith-building-a-code-first-e
-  - id: m02-untitled
-    title: "面向工具使用的评估：真实环境与开放评测标准"
+  - id: tooluse-eval
+    title: "工具型 agent 的真实环境评估"
     lessons:
       - devblog-2026-02-20-openenv-in-practice-evaluating-tool-using-agents
       - devblog-2025-12-20-the-open-evaluation-standard-benchmarking-nvidia
-  - id: m03-benchmark
-    title: "评估方法论陷阱：为什么某些 benchmark 不再适合做回归门禁"
+  - id: benchmark-governance
+    title: "Benchmark 治理：指标何时失效"
     lessons:
       - devblog-2026-02-23-why-we-no-longer-evaluate-swe-bench-verified
-  - id: m04-agent
-    title: "衡量 agent 的“自主性”与长轨迹行为（研究/工程都可用的指标直觉）"
+  - id: autonomy-metrics
+    title: "自治度指标：如何测量 agent autonomy"
     lessons:
       - devblog-2026-02-18-measuring-ai-agent-autonomy-in-practice
-  - id: m05-jailbreak
-    title: "安全专题（可选阅读）：通用 jailbreak 防御的工程化路径"
+  - id: safety-guardrails
+    title: "安全专题：系统级 jailbreak 防线"
     lessons:
       - devblog-2025-02-03-constitutional-classifiers-defending-against-uni

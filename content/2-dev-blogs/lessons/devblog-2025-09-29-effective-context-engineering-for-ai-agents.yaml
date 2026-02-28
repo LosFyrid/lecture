@@ -1,37 +1,165 @@
 id: devblog-2025-09-29-effective-context-engineering-for-ai-agents
-title: "Effective context engineering for AI agents"
+title: "Context Engineering 总论：注意力预算、JIT/hybrid retrieval 与长任务三板斧"
 summary: |
-  文章把“prompt engineering”扩展为更适合 agent 的概念：**context engineering**。核心问题从“怎么写一句好 prompt”变成“在每一步推理时，给模型什么样的 context 配置最可能产生期望行为”。
+  这篇工程文章把“写一句好 prompt”的问题升级为更贴近 agent 的问题：在每一步推理时，应该把哪些信息（tokens）放进有限的 context window，才能以更低成本、更高可靠性触发期望行为。原文给出一条主线（context=有限注意力预算，存在 context rot），并提供一组可迁移的工程抓手：token-efficient 的工具设计、Just-in-Time（按需）加载上下文，以及长任务的三种续航方案（compaction、结构化笔记、sub-agent 架构）。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2025-09-29
-      - 来源：Anthropic
-      - URL：https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/Anthropic/Agents_and_Tooling/2025-09-29__effective-context-engineering-for-ai-agents__126e07cf0d.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      当你开始构建会“多轮思考 + 多次工具调用”的 agent，你会很快发现：系统的瓶颈不再只是“system prompt 写得够不够好”，而是“每一轮到底把什么塞给模型”。
+
+      这节课围绕原文的核心问题展开：
+
+      1) context engineering 和 prompt engineering 到底差在哪里？为什么 agent 时代前者更像日常工作？  
+      2) 为什么 context window 变大不等于 agent 变强？“context rot / 注意力预算”想表达的机制是什么？  
+      3) 工程上如何把 context 当作有限资源来管理：工具设计、检索策略、压缩策略分别负责解决哪类问题？  
+      4) 对长任务来说，原文总结的“三板斧”（compaction、结构化笔记、sub-agent）各适用于什么任务形态？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：先把几个词讲清楚
     body: |
-      - 主题：context engineering、attention budget、tool design、just-in-time context、hybrid retrieval、compaction、note-taking memory、sub-agents
-      - 要点：
-        - 文章把“prompt engineering”扩展为更适合 agent 的概念：**context engineering**。核心问题从“怎么写一句好 prompt”变成“在每一步推理时，给模型什么样的 context 配置最可能产生期望行为”。
-        - 定义：context 是采样（inference）时进入模型的 token 集合；context engineering 是在 LLM 的约束下（上下文上限、注意力预算、长上下文退化）优化这些 token 的“效用”，并在多轮/长时任务里持续维护。
-        - 为什么长上下文不等于更好：研究与实务都表明存在 **context rot**（context 越长，模型对其中信息的可靠召回越差）。从架构上，Transformer 的注意力机制需要处理 n 个 token 的 n^2 关系，注意力预算会被稀释；同时训练分布里短序列更常见，导致模型对超长依赖更“没练过”。因此 context 是有限资源且边际收益递减。
-        - 有效 context 的总原则：在注意力预算有限前提下，追求**最小的高信号 token 集**，最大化目标结果概率（“最小不等于最短”，而是“去掉低信号噪音”）。
-        - System prompt 的“高度（altitude）”校准：
-          - 一端是把复杂逻辑硬编码成脆弱的 if-else，维护成本高且容易碎；
-          - 另一端是泛泛而谈的高层指导，缺乏可执行信号或错误假设“共享背景”；
-          - 最佳点是：足够具体以引导行为，但仍提供可泛化的启发式。
-        - 建议把 system prompt 拆成清晰分区（如 `<background_information>`、`<instructions>`、`## Tool guidance`、`## Output description`），用 XML tag 或 Markdown header 强化边界；从“最小可用提示”开始测，再按失败模式逐步加指令/示例。
-        - Tools 设计：工具是 agent 与环境的契约，应当 token-efficient、职责单一、错误鲁棒、描述清晰且输入参数无歧义。一个常见失败模式是“工具集膨胀+功能重叠”导致模型在选择工具时陷入模糊决策点；如果人都说不清该用哪个，模型更不可能做对。
-        - Few-shot：建议使用“多样但典型”的 canonical examples，而不是把大量 edge case 一股脑塞进 prompt；示例对模型来说更像“图像”而不是“文字解释”。
-        - Context retrieval 的范式在变化：从“预先做 embedding 检索把所有相关内容塞进去”，转向“**Just-in-Time**”：只保留轻量引用（文件路径/查询/链接），在运行时用工具按需加载；这更像人类用文件系统/书签/索引按需取用，而不是死记全量语料。
-        - JIT 的额外收益是“元数据即信号”：文件名、目录层级、时间戳等会自然地给 agent 提示用途与相关性；并且支持 progressive disclosure（先概览、再缩小范围、再加载细节），让 agent 逐层构建理解而不被无关内容淹没。
-        - 代价与折中：运行时探索更慢，且需要给 LLM 足够好的工具与导航启发式，否则会误用工具、走死胡同、浪费上下文；很多场景最终会采用 hybrid：一部分关键上下文预加载 + 其余按需探索（文中以“说明文件预加载 + glob/grep 运行时检索”为例）。
-        - 长时任务（long-horizon）三种常见工程手段：
-          - Compaction：接近上限时高保真总结并开启新窗口；在 Claude Code 的例子里会保留架构决策/未解决问题/实现细节，丢弃冗余 tool 输出，并搭配“最近访问的文件”保持连续性；建议调 compaction prompt 时先追求高 recall，再提高 precision。
-          - Structured note-taking：把关键进度/依赖写到 context window 外（例如 TODO/NOTES.md），之后再读回，维持跨多轮一致性。
-          - Sub-agent architectures：让子 agent 用干净上下文深入探索（可用掉 10k+ tokens），最后只回传 1k–2k tokens 的蒸馏结果，主 agent 负责合成；适用于并行探索收益大的研究类任务。
+      **Context（上下文）**  
+      原文把 context 定义得很严格：一次推理（inference/sampling）时，进入模型的那一组 tokens（包括 system 指令、工具描述、外部资料、历史消息、工具结果等）。
+
+      **Context window（上下文窗口）**  
+      模型单次调用能看到的 tokens 上限。它既影响成本与延迟，也决定了“你最多能同时给模型多少工作台材料”。
+
+      **Attention budget（注意力预算）**  
+      你可以把它当成一个直觉：模型虽然能“看见”很多 tokens，但它在推理时能有效分配的注意力是有限的。每加入一个 token，都要消耗一些注意力预算。
+
+      **Context rot（上下文腐烂/退化）**  
+      原文引用了 needle-in-a-haystack 风格基准揭示的一种现象：上下文越长，模型从中准确回忆/检索信息的能力往往会下降。它表现为“信息在，但用不好”。
+
+      **Just-in-Time (JIT) context / hybrid retrieval（按需/混合加载）**  
+      不把所有资料预先塞进 prompt，而是保留轻量引用（路径、链接、查询），在需要时用工具把细节拉进来；“hybrid”强调往往会混合使用：少量长期常驻信息 + 运行时按需加载。
+
+      **Compaction（压缩/续航）**  
+      接近窗口上限时，把历史 trace 压缩成“后续仍可执行的状态”，让 agent 能开新窗口继续跑。
+
+  - type: md
+    title: 从 prompt engineering 到 context engineering：问题被“扩容”了
+    body: |
+      原文把 context engineering 视为 prompt engineering 的自然演进：
+
+      - prompt engineering 更关注“如何写/组织指令”（尤其是 system prompt）来得到更好的一次性输出。  
+      - context engineering 更关注“如何在每一步推理时维护一份最优的 tokens 集合”，其中很多 token 并不是你写的 prompt，而是系统运行过程中自然产生的：工具返回、外部检索、历史状态、甚至工具协议（例如 MCP）本身。
+
+      这会带来一个很现实的变化：context engineering 不是一次性的写作任务，而是一个循环的“策展”工作——每次调用模型前，你都在决定“这一次到底让模型看到什么”。
+
+  - type: md
+    title: 为什么长上下文不等于更强：把 context 当作有限资源
+    body: |
+      原文把“长上下文会退化”解释成一个资源问题，而不是一个玄学问题：
+
+      1) **边际收益递减**：上下文里新增的 token 并不总是“新信息”，很多时候是冗余、噪声或已经过期的中间尝试。  
+      2) **注意力被稀释**：Transformer 的注意力机制需要在 tokens 之间建立大量关系；当 tokens 变多时，这种关系网络会被拉得更薄，导致模型更难把注意力聚焦在真正关键的字段与证据上。  
+      3) **训练分布不匹配**：模型在训练中见到的短序列通常更多，因此它对“超长依赖/跨很长距离的引用”往往更不擅长。
+
+      对 agent 来说，这个结论很容易在工程上复现：同一个任务，当你把“几十轮对话 + 大量工具输出 + 多份文档片段”全部塞进窗口时，模型更容易出现跑偏、复读、工具误用、或把早期错误当成事实继续引用。
+
+  - type: md
+    title: 工具与检索：JIT 的直觉是“先给索引，再给细节”
+    body: |
+      原文提到两条很可迁移的经验：工具要 token-efficient，检索要按需（JIT）。
+
+      **1) 工具设计：让工具像“明确的契约”，而不是“模糊的菜单”**  
+      如果你的工具集出现大量重叠（功能接近、边界不清），模型会在“选择哪个工具”这个分叉点上持续犯错。一个很朴素的检验是：人类读完工具描述后，是否也会犹豫该用哪个？如果人都说不清，模型通常更难做对。
+
+      **2) JIT：把“元数据”当成第一层上下文**  
+      JIT 的一个实用好处是：你可以先把轻量的元信息放进上下文（文件名、目录层级、时间戳、标题），让它们充当“相关性信号”；只有当模型决定“这份材料真的要读”时，再通过工具把内容加载进来。
+
+      你可以把它类比成写论文：先看目录与摘要，再决定精读哪几章；而不是一开始就把整本书从头读到尾。
+
+  - type: md
+    title: 长任务三板斧（1）：Compaction——把历史压成“可继续执行的状态”
+    body: |
+      当 agent 运行在 loop 里，历史会不断增长；compaction 的目标是“让系统能继续跑下去”，而不是“让文本更短”。
+
+      原文给出一个非常工程化的调参建议：调 compaction prompt 时可以先追求 **高 recall**（宁可多保留一点重要信息），再逐步提高 **precision**（删掉真正多余的内容）。
+
+      它也提醒一个常见的低成本动作：**清理工具原始结果**。很多工具在历史中早就调用过一次了，后续很少需要再次看到一整段 raw output；把它们折叠成短摘要/引用，往往是最“轻触”的 compaction。
+
+      compaction 的风险也很明确：如果压缩过度，某些“当时看起来不重要，但后来变重要”的细节会被抹掉。因此 compaction 更像一项需要在真实 traces 上迭代的工程能力。
+
+  - type: md
+    title: 长任务三板斧（2）：结构化笔记——把记忆写到窗外，再按需读回
+    body: |
+      原文把 structured note-taking（结构化笔记）视为一种“低开销的外部记忆”：
+
+      - agent 在执行过程中定期把关键状态写入窗外介质（例如 `TODO.md`、`NOTES.md`、状态 JSON）。  
+      - 当上下文需要重置或历史被 compaction 后，再把这些笔记读回 context window，维持连续性。
+
+      这类笔记通常比“把所有历史都塞在上下文里”更稳，因为它迫使系统显式化：
+
+      - 当前目标与里程碑  
+      - 已做出的关键决策与约束  
+      - 未完成事项与阻塞点  
+
+      你可以把它理解成：让 agent 像一个工程师那样工作——不是把一切都记在脑子里，而是把状态写进可回放的工件。
+
+  - type: md
+    title: 长任务三板斧（3）：Sub-agent 架构——让“深挖”发生在干净上下文里
+    body: |
+      原文提出 sub-agent 的动机很直接：当任务需要深挖资料/并行探索时，不必让主 agent 背着所有细节前进。
+
+      一种常见结构是：
+
+      - 主 agent 保持高层计划与综合（synthesis）  
+      - 子 agent 在干净上下文里做“深度探索”（可以消耗大量 tokens），最后只回传一份蒸馏后的总结（原文给出的典型量级是 1,000-2,000 tokens）
+
+      这种隔离带来的收益是：细节搜索与噪声不会污染主线 context；主 agent 更容易保持一致的目标与决策口径。  
+      它也有代价：你需要设计“子 agent 回传格式”（只回传结论还是也回传证据入口？），并处理并行导致的一致性问题（这与 multi-agent 的一致性成本是同一类难题）。
+
+  - type: md
+    title: 如何选用三板斧：按任务形态匹配，而不是按流行词匹配
+    body: |
+      原文给出一个很实用的匹配直觉：
+
+      - **Compaction** 更适合需要持续对话连续性的任务：你希望“继续同一个线程”，但又不能无限增长。  
+      - **结构化笔记** 更适合有清晰里程碑的长期任务：它把关键状态从聊天里抽出来，变成稳定工件。  
+      - **Sub-agent** 更适合研究/分析类任务：并行探索有明显收益，且结果能以“蒸馏总结 + 证据入口”的方式合并。
+
+      你可以把它当成一个工程选择题：你最怕的是什么？
+
+      - 怕上下文爆掉 → 先上 compaction  
+      - 怕决策漂移、忘记约束 → 先上结构化笔记  
+      - 怕单线程探索太慢/覆盖太窄 → 再考虑 sub-agent
+
+  - type: md
+    title: 练习：为一个长任务写出“上下文预算方案”
+    body: |
+      选一个你熟悉的长任务（例如：阅读一份大型代码库并修复 bug；做一份文献调研并写综述），写一个 1 页的“上下文预算方案”：
+
+      1) 你的 context 分成哪几层？（长期常驻 vs 运行时按需）  
+      2) 你会如何做 JIT 加载？（先列目录/索引，再读文件/段落）  
+      3) 你会何时触发 compaction？压缩结果必须保留哪些字段？  
+      4) 你会让 agent 写哪份结构化笔记？它的 schema 是什么？  
+      5) 哪一部分适合交给 sub-agent 深挖？子 agent 回传必须包含哪些“证据入口”？
+
+      目标是让你把“context engineering”从一组口号，落到一次可实现的设计。
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2025-09-29
+      - 来源：Anthropic
+      - 建议：阅读原文时可以按“为什么重要 → 工具/JIT → 三板斧（compaction/笔记/sub-agent）”的顺序做笔记，并留意作者如何把抽象的 attention budget 解释成可操作的工程动作（删哪些、留哪些、何时加载、何时折叠）。
+
+  - type: url
+    title: "原文：Effective context engineering for AI agents"
+    url: https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      原文中提到的具体产品能力（例如某些平台提供的上下文管理功能、或示例里的工具/记忆实现）可能会随时间变化。
+      更可迁移的部分是：把 context 当作有限注意力预算资源，并用“按需加载 + 压缩续航 + 窗外记忆 + 子任务隔离”的组合来提高长任务可靠性。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) prompt engineering 主要解决“指令怎么写”，context engineering 主要解决“每一轮到底给模型哪些 tokens”；agent 在 loop 里运行时，后者往往更决定稳定性与成本。  
+      2) context 变长会遇到注意力稀释与 context rot，因此上下文不是“越多越好”，而是“高信号 tokens 的最小集合”。  
+      3) JIT/hybrid retrieval 的直觉是先给索引/元数据，让模型决定要不要读细节；它通常比一次性塞满材料更稳，也更省。  
+      4) 长任务的三板斧分别解决不同问题：compaction 解决“窗口不够用”、结构化笔记解决“跨轮一致性”、sub-agent 解决“深挖与并行探索”。选择它们应当以任务形态与风险点为依据。

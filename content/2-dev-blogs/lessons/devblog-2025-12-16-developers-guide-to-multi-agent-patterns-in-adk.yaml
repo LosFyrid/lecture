@@ -1,35 +1,162 @@
 id: devblog-2025-12-16-developers-guide-to-multi-agent-patterns-in-adk
-title: "Developer’s guide to multi-agent patterns in ADK"
+title: "Multi-agent 模式库：pipeline / dispatcher / fan-out / critic / HITL"
 summary: |
-  文章把 MAS（Multi-Agent System）类比为“agent 世界的微服务”：单 agent 承担过多职责会变成“万金油但不精”，指令越复杂越难遵循，错误会级联；把职责拆成角色（Parser/Critic/Dispatcher 等）能提高模块化、可测试性与可调试性。
+  这篇开发者指南把 Multi-Agent Systems（MAS）类比成“agent 世界的微服务”：当单 agent 被塞进过多职责时，指令越复杂越难遵循、错误更容易级联，调试也更像“拆整段 prompt 追 bug”。原文用 ADK 的伪代码展示多种可迁移的协作模式（顺序流水线、意图分发、并行评审、层级委派、生成-校验、迭代润色、人类审批等），强调这些模式的价值不在某个 SDK，而在“角色拆分 + state 契约 + 可组合”。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2025-12-16
-      - 来源：Google
-      - URL：https://developers.googleblog.com/developers-guide-to-multi-agent-patterns-in-adk
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/Google/Agents_and_Tooling/2025-12-16__developer-s-guide-to-multi-agent-patterns-in-adk__75c72312c1.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      许多人第一次做 multi-agent 是被“并行更快”吸引；但真正能让系统更可靠的，往往不是并行本身，而是**把职责拆清楚**：谁负责解析、谁负责检索、谁负责审查、谁负责最后合成。
+
+      这节课围绕原文的 8 类模式（patterns）来建立直觉：
+
+      1) 什么时候“拆角色”比“写更长的 system prompt”更有效？  
+      2) 顺序流水线（pipeline）与并行 fan-out/fan-in 分别适合什么任务？  
+      3) dispatcher（路由）依赖什么输入信号才能把请求交给正确的 specialist？  
+      4) generator-critic（生成-校验）与 iterative refinement（生成-点评-润色）有什么本质差别？  
+      5) HITL（human-in-the-loop）应该放在哪里，才能既安全又不打断自治？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：multi-agent 里的三个“工程对象”
     body: |
-      - 主题：multi-agent patterns、sequential pipeline、dispatcher/routing、parallel fan-out/fan-in、hierarchical delegation、generator-critic loop、refinement loop、human-in-the-loop、shared state
-      - 要点：
-        - 文章把 MAS（Multi-Agent System）类比为“agent 世界的微服务”：单 agent 承担过多职责会变成“万金油但不精”，指令越复杂越难遵循，错误会级联；把职责拆成角色（Parser/Critic/Dispatcher 等）能提高模块化、可测试性与可调试性。
-        - 给出一组可直接套用的设计模式（用 ADK 伪代码展示），其中最可迁移的是这些结构本身，而不是具体框架：
-          - Sequential pipeline（顺序流水线）：Agent A → B → C，线性可追踪，适合文档处理（解析→抽取→总结）。关键点是**显式 state management**：每步把输出写到共享 state 的特定 key，让下一步可引用。
-          - Dispatcher/Coordinator（意图路由）：中心 agent 读取用户意图，把请求分发给 specialist agents；依赖对子 agent 的清晰描述来做 LLM-driven delegation。
-          - Parallel fan-out + synthesizer（并行评审/多视角）：多个 agent 同时做子任务，最后由 synthesizer 汇总；注意并行执行时仍共享 session state，需要每个 agent 写不同 key 防 race condition。
-          - Hierarchical delegation / agent-as-tool：高层 agent 自己推理，但把某一部分工作委派给下层 agent；可以把“一个子 agent 的完整工作流”封装成一个 tool 调用，让上层以函数方式调用。
-          - Generator + Critic（生成-校验门）：一个 agent 产草稿，另一个按硬标准审查；用 loop 反复生成→反馈→修正，直到 PASS（适合需要语法/合规校验的场景）。
-          - Iterative refinement（生成-点评-润色）：与 PASS/FAIL 不同，这里追求质量提升；用 loop 多轮 critique→refine，并设置 `max_iterations` 或允许提前退出（例如达到质量阈值时 signal `escalate=True`）。
-          - Human-in-the-loop（高风险动作审批）：agent 做常规处理，遇到不可逆/高风险动作（交易、生产部署、敏感数据操作）时调用“审批工具”暂停，等待人类确认。
-        - 文章建议现实系统通常是这些模式的组合：例如 Coordinator 路由 → 某分支并行检索 → 最终再走 generator-critic 做质量门禁。
+      **Agent（角色）**  
+      在这篇文章里，agent 更像“职责清晰的角色”，而不是“一个大而全的万能体”。你把不同说明（instructions）、不同工具集（tools）、不同输出格式（output contract）分配给不同角色，就能获得更好的模块化。
+
+      **Shared state（共享状态）**  
+      原文反复强调：多 agent 协作不是靠“彼此聊天”来传话，而是靠把中间产物写入共享 state 的明确 key（ADK 里叫 `output_key`），让下游在确定的位置读取。
+
+      这件事很关键，因为它决定了：
+      - 你能不能复现一次失败（state 是可回放的）  
+      - 你能不能写集成测试（断言某个 key 应该出现某种结构）  
+      - 并行时会不会互相覆盖（需要 key 约定防 race condition）
+
+      **Synthesizer / Orchestrator（收敛者）**  
+      当多个分支产出结果时，需要一个“合成者”把它们变成一个一致答案/决策。它的工作不是“再写一遍长文”，而是做去重、对齐口径、补洞与最终输出。
+
+  - type: md
+    title: Pattern 1：Sequential Pipeline（顺序流水线）——像装配线一样可追踪
+    body: |
+      顺序流水线的直觉是：Agent A 做完，把 baton 交给 Agent B，再交给 Agent C。它线性、确定、容易 debug，因为你能明确知道“数据从哪一步来的”。
+
+      原文给的典型例子是文档处理：Parser 把 PDF 变成文本，Extractor 从文本里抽结构化字段，Summarizer 再生成最终摘要。
+
+      这里的“秘密武器”是 state management：每一步把结果写到共享 state 的指定 key，让下一步在确定位置读取，而不是从一长串对话里猜“上一轮产物是什么”。
+
+  - type: md
+    title: Pattern 2：Dispatcher / Coordinator（意图分发）——把请求路由给 specialist
+    body: |
+      有些任务不需要“链式处理”，而需要“先判断该找谁”。dispatcher 模式里，一个中心 agent 负责读用户意图，并把请求交给最合适的 specialist agent。
+
+      原文用客服类比：账单问题交给 Billing specialist，故障排查交给 Tech Support specialist。
+
+      这种模式高度依赖一件事：你如何描述每个 specialist 的边界（description/职责）。描述越清晰、工具越匹配，路由越稳；反之，dispatcher 会变成“随机分发器”。
+
+  - type: md
+    title: Pattern 3：Parallel fan-out + fan-in（并行评审/多视角）——快与广，但要管好 state
+    body: |
+      当子任务彼此独立时，并行能带来两类收益：
+      - 降低端到端延迟（一起跑）  
+      - 获得多视角覆盖（安全/风格/性能分别看）
+
+      原文举了 Automated Code Review：并行启动 “Security Auditor / Style Enforcer / Performance Analyst”，最后由 synthesizer 合并成一条统一评论。
+
+      工程上最容易踩的坑是：并行分支虽然在不同执行线程里跑，但共享 session state。  
+      原文的建议很实在：每个并行 agent 必须写入不同的 key，避免 race condition（互相覆盖、结果不可复现）。
+
+  - type: md
+    title: Pattern 4：Hierarchical delegation / Agent-as-tool（层级委派）——把子团队封装成一个“函数调用”
+    body: |
+      层级委派的直觉是：上层 agent 不自己做所有细活，而是把某一块工作委派给一个“下层团队”；更进一步，你甚至可以把一个 sub-agent 的完整工作流封装成一个 tool，让上层以“调用函数”的方式使用它。
+
+      原文的例子是写报告：ReportWriter 不直接做网页检索，而是调用 ResearchAssistant；ResearchAssistant 再管理 WebSearch 与 Summarizer 这类更底层的角色。
+
+      这类封装的价值在于：你可以把复杂子流程隐藏在清晰接口背后，减少主线上下文噪声，同时提升复用性。
+
+  - type: md
+    title: Pattern 5：Generator + Critic（生成-校验门）——用 PASS/FAIL 做质量门禁
+    body: |
+      generator-critic 模式把“创造”和“验证”拆开：
+      - Generator 产出草稿  
+      - Critic 按硬标准审查（语法、合规、逻辑检查）
+
+      它的核心是“条件循环”：如果 Critic 输出 PASS 就结束；否则把具体反馈回传给 Generator 继续修。
+
+      原文强调，这对“必须正确”的任务很有用，例如代码/SQL 生成：你可以让 Critic 把错误写得足够具体，指导 Generator 下一轮修正。
+
+  - type: md
+    title: Pattern 6：Iterative refinement（生成-点评-润色）——不是对错，而是把质量推高
+    body: |
+      iterative refinement 看起来也像“生成 + 反馈”，但目标不同：
+      - generator-critic 追求“是否通过硬门槛”  
+      - refinement 追求“在多轮迭代中把质量打磨上去”
+
+      原文提到一个关键工程点：要有退出机制。你可以设 `max_iterations`，也可以允许提前退出（达到质量阈值就 stop）。
+
+      这类模式适合写作、解释、性能优化建议等“没有单一正确答案，但有明显质量梯度”的任务。
+
+  - type: md
+    title: Pattern 7：Human-in-the-loop（高风险动作审批）——把“不可逆”放到人手里
+    body: |
+      原文把 HITL 放在一个很明确的位置：当动作不可逆或后果重大时，让人类来授权。
+
+      典型包括：金融交易、生产部署、基于敏感数据采取行动（不是“读取/分析”，而是“执行”）。
+
+      关键是位置选择：让 agent 负责常规处理与准备材料；当触达高风险边界时调用 approval tool 暂停，等待人类 Yes/No。
+      这样既保留自治（agent 能把材料准备好），也保留安全与问责（最后一步由人拍板）。
+
+  - type: md
+    title: Pattern 8：组合模式（Composed patterns）——真实系统往往是混搭
+    body: |
+      原文的一个结论很务实：企业级/生产级系统很少只用一种模式。
+
+      例如：先用 dispatcher 路由请求；某一分支再并行检索/评审；最终答案进入 generator-critic 做门禁；必要时在关键动作上加 HITL。
+
+      你可以把这些 patterns 看成“乐高积木”：关键不是积木数量，而是你是否为每块积木定义了清晰的职责、输入/输出契约与 state key。
+
+  - type: md
+    title: 工程化落地：三条自检线（可复现、可合并、可治理）
+    body: |
+      把原文模式落到工程里，可以用三条线做快速自检：
+
+      1) **可复现**：每个 agent 的关键输出是否写入 state 的固定 key？是否能回放一次失败？  
+      2) **可合并**：并行分支的输出契约是否结构化？synthesizer 是否能去重/对齐/查证，而不是“读完再写一遍”？  
+      3) **可治理**：哪些步骤需要 hard gate（PASS/FAIL）？哪些需要 HITL？退出条件与预算（iterations/tokens/time）是否明确？
+
+  - type: md
+    title: 练习：把一个任务映射成“模式组合图”
+    body: |
+      选一个你熟悉的 agent 任务（例如：PR 自动审查、文档抽取、研究问答），画出一个模式组合图：
+
+      1) 入口是 pipeline 还是 dispatcher？为什么？  
+      2) 有没有适合并行 fan-out 的独立子任务？每个分支写哪个 state key？  
+      3) 你会把哪一步设成 generator-critic 门禁？PASS/FAIL 的硬标准是什么？  
+      4) 哪些动作需要 HITL？审批时你希望 agent 先准备哪些证据与参数？
+
+      把图画出来后，再检查：你的“合并点”是否清晰？你的“退出条件”是否明确？
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2025-12-16
+      - 来源：Google
+      - 建议：阅读原文时可以把每个 pattern 用一句话写成“适用场景 + 核心机制 + 关键坑位”（例如并行的 race condition、refinement 的退出机制、HITL 的放置边界），并对照伪代码里对 state/output_key 的使用方式理解其可复现性。
+
+  - type: url
+    title: "原文：Developer’s guide to multi-agent patterns in ADK"
+    url: https://developers.googleblog.com/developers-guide-to-multi-agent-patterns-in-adk
+    mode: open
 
   - type: md
     title: 时效性提示（可能过时）
     body: |
-      文中以 Google ADK 的伪代码展示模式；ADK 的类名/原语（SequentialAgent/ParallelAgent/AutoFlow 等）可能随版本变化。
-      本课关注 multi-agent 的结构模式（pipeline/dispatcher/fan-out/fan-in/generator-critic/HITL），而不是特定 SDK 的 API 细节。
+      原文用 Google ADK 的伪代码示意（SequentialAgent/ParallelAgent/LoopAgent/AutoFlow 等）。这些类名与 API 细节可能会随版本变化。
+      更可迁移的是模式本身：顺序流水线、意图分发、并行 fan-out/fan-in、层级委派、生成-校验门、迭代润色、人类审批，以及它们对 state 契约与退出机制的要求。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) “拆角色”比“写更长 prompt”更有效的典型信号是：单 agent 同时承担解析、检索、生成、审查等多种目标，导致指令冲突与错误级联；拆成职责清晰的 specialist 往往更可测试、更可调试。  
+      2) pipeline 适合线性数据流（每步产物写到 state 的固定 key）；并行 fan-out/fan-in 适合独立子任务，但必须约定 state keys 防 race condition，并设计可合并的输出契约。  
+      3) dispatcher 的关键是 specialist 的边界描述与工具匹配；描述越清晰，路由越稳定。  
+      4) generator-critic 用 PASS/FAIL 做门禁，refinement 用多轮点评把质量推高；两者都需要明确退出机制与预算控制。  
+      5) HITL 适合放在不可逆/高风险动作边界上：让 agent 先做准备与解释，让人类只对关键一步做授权。

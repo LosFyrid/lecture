@@ -1,44 +1,178 @@
 id: devblog-2025-11-25-tools-model-context-protocol
-title: "Tools - Model Context Protocol"
+title: "MCP Tools 规范：tools/list、tools/call、schema 与错误语义"
 summary: |
-  MCP 的 tools 设计目标是“model-controlled”：模型可以基于上下文自动发现与调用工具；但协议不强制 UI/交互形态，客户端可以按需暴露。
+  MCP Tools 规范定义了一组“可互操作”的工具接口：客户端如何发现工具（tools/list）、如何调用工具（tools/call）、工具如何用 JSON Schema 描述参数与输出、以及错误应该如何表达，才能让模型更容易自修复。原文还把安全职责拆到两边：server 必须做输入校验/访问控制/限流/输出清洗；client 应做敏感操作确认、展示输入、防数据外泄、验证结果、超时与审计。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2025-11-25
-      - 来源：MCP
-      - URL：https://modelcontextprotocol.io/specification/2025-11-25/server/tools
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/MCP/Safety_and_Security/2025-11-25__tools-model-context-protocol__bfba858067.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      当你开始把 agent 做成“工具生态”（数据库、文件系统、浏览器、内部 API、支付/下单等），你会遇到一个长期问题：工具越来越多、来源越来越杂，但模型仍然需要“用得对、错了能修、还能被审计”。
+
+      MCP 的 tools 规范试图回答的是：在不同工具提供方之间，如何用一套协议把“发现、调用、返回、错误、安全”这些最关键的接口固定下来。
+
+      本课希望你读完能回答：
+
+      1) MCP 所说的“model-controlled”到底是什么意思？它对产品交互有什么约束/不约束什么？  
+      2) 为什么工具 schema（输入/输出/错误语义）会直接决定 agent 的可调试性与自修复能力？  
+      3) tools/list / tools/call / list_changed 分别解决什么问题？什么时候你真的需要 list_changed？  
+      4) MCP 的安全分工是什么：server 负责什么、client 负责什么？为什么两边都不能省？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：Tool、JSON Schema 与“结构化结果”
     body: |
-      - 主题：MCP tools spec、tools/list、tools/call、list_changed notification、inputSchema/outputSchema、structuredContent、error taxonomy、security controls
-      - 要点：
-        - MCP 的 tools 设计目标是“model-controlled”：模型可以基于上下文自动发现与调用工具；但协议不强制 UI/交互形态，客户端可以按需暴露。
-        - 能力声明：支持 tools 的 server 必须声明 `tools` capability；其中 `listChanged` 表示 server 是否会在工具列表变化时发通知。
-        - 核心消息：
-          - `tools/list`：列出可用工具（支持分页）。
-          - `tools/call`：调用工具并返回结果。
-          - `notifications/tools/list_changed`：当工具列表变化时，server 应发送通知（尤其对动态工具集很关键）。
-        - Tool 定义的关键字段：
-          - `name`（唯一标识）、`title`/`description`（面向人/模型的说明）、`icons`、`inputSchema`（JSON Schema 参数定义）、可选 `outputSchema`（结构化输出校验）、`annotations`（行为元数据）。
-        - Tool name 的规范（可迁移的“命名约束”）：长度 1–128；大小写敏感；允许字符为 ASCII 字母/数字/下划线/连字符/点；不应包含空格和特殊符号；同 server 内必须唯一。
-        - Tool Result 的两种形态：
-          - 非结构化：`content` 字段可包含多种内容类型（text/image/audio/resource link/embedded resources），并支持 annotations（受众、优先级、修改时间等）。
-          - 结构化：`structuredContent` 返回 JSON 对象；为了向后兼容，建议同时在 text content 里返回 JSON 序列化文本。
-        - `outputSchema` 的价值：如果提供，server 必须返回符合 schema 的结构化结果；客户端应该做校验。它能带来更严格的类型信息、更好的解析与开发体验，并帮助 LLM 正确消费返回值。
-        - 错误处理分层（非常实用）：
-          - Protocol Errors：JSON-RPC 层的结构性错误（未知 tool、请求不合法等），模型通常不容易自修复。
-          - Tool Execution Errors：在 tool result 中用 `isError: true` 表示（API 失败、输入校验、业务逻辑错误等），应包含可操作的反馈，客户端**应该把这类错误提供给模型**以便自修复重试。
-        - 安全考虑（server/client 双侧职责）：
-          - Server：校验输入、访问控制、限流、清洗输出；
-          - Client：对敏感操作做用户确认、展示 tool inputs 防数据外泄、校验 tool results 后再喂给 LLM、设置超时、审计日志等。
+      **Tool（工具）**  
+      一个可被模型调用的外部能力。它通常是“结构化输入 → 结构化输出”的函数式接口，而不是一段自然语言说明。
+
+      **JSON Schema（输入/输出约束）**  
+      MCP 用 JSON Schema 描述工具参数（inputSchema），并允许工具声明输出结构（outputSchema）。直觉上，schema 解决的是两件事：
+
+      - 让模型更清楚“我应该填哪些字段、字段类型是什么、哪些是必填”。  
+      - 让客户端/测试框架能验证结果是否符合预期，而不是靠字符串解析碰运气。
+
+      **Structured content（结构化结果）**  
+      MCP 允许工具结果既返回可读文本（content），也返回一个 JSON 对象（structuredContent）。当你希望模型“稳定读取字段”或希望代码“稳定解析字段”时，structuredContent 往往更可靠。
+
+  - type: md
+    title: User Interaction Model：model-controlled 但不强制 UI
+    body: |
+      原文对交互模型的表述非常关键：MCP 的工具是 **model-controlled**，意思是“模型可以基于上下文自动发现并调用工具”。
+
+      但它同时强调：**协议不规定你必须用什么 UI/交互方式展示工具**。实现方可以选择：
+
+      - 完全自动（模型决定、直接调用）  
+      - 半自动（敏感操作弹确认）  
+      - 人在回路（用户手动选择工具/批准调用）
+
+      这点对 agent 系统很重要：MCP 是“互操作协议”，不是“产品设计模板”。你可以在 client 侧加确认、可视化、审计，而不需要改变 server 的工具实现。
+
+  - type: md
+    title: Discover & Call：tools/list、tools/call 与动态工具集
+    body: |
+      原文把工具协议拆成三条主链路：
+
+      **1) tools/list：发现工具**  
+      客户端用 `tools/list` 请求列出可用工具，并且该操作支持分页（pagination）。这让“工具很多”的场景不会被一次性 payload 绑死。
+
+      **2) tools/call：调用工具**  
+      客户端用 `tools/call` 发起调用，server 返回 tool result（可以包含 text、structuredContent、资源链接等）。
+
+      **3) listChanged + notifications/tools/list_changed：工具列表变化通知**  
+      server 如果声明了 `tools` capability，并标记 `listChanged`，表示它可能在工具列表变化时发送通知。  
+      这对“动态工具集”尤其关键：例如同一个 server 的可用工具取决于用户权限、租户配置、或运行时挂载的外部系统。
+
+      你可以把它理解成：`tools/list` 解决“初始发现”，`list_changed` 解决“运行中刷新”。
+
+  - type: md
+    title: Tool 定义：name 规则、inputSchema 与 outputSchema 的工程含义
+    body: |
+      原文列出了 Tool 定义中最重要的字段（这里用工程含义重述）：
+
+      - `name`：工具的唯一标识（给模型与协议用）  
+      - `title` / `description`：面向人类/模型的解释（决定模型是否会误用）  
+      - `inputSchema`：参数 JSON Schema（决定模型能否正确填参、错了能否自修）  
+      - `outputSchema`（可选）：输出 JSON Schema（决定客户端/模型能否稳定消费返回值）  
+      - `annotations`（可选）：行为元数据（例如优先级、受众等）
+
+      其中 tool name 有一组容易被忽略但很实用的命名约束（原文为 SHOULD 级别）：
+
+      - 长度建议 1 到 128（含）  
+      - 大小写敏感  
+      - 建议只允许 `A-Z a-z 0-9 _ - .`  
+      - 避免空格、逗号与其它特殊字符  
+      - 同一 server 内唯一
+
+      这些约束看起来像“格式洁癖”，但在实践里很有价值：它降低了模型拼写错误与解析歧义，也降低了跨语言/跨系统集成时的踩坑概率。
+
+  - type: md
+    title: Tool Result：文本、结构化对象与资源链接
+    body: |
+      工具返回值在 MCP 里不是单一字符串。原文把它拆成三类常见形态：
+
+      1) **Unstructured content**：放在 `content` 里，可以是 text/image/audio/resource link/embedded resources 等多种内容项，并可带 annotations 元数据。  
+      2) **Structured content**：放在 `structuredContent` 里，是一个 JSON 对象。  
+      3) **Resource links / embedded resources**：工具可以返回资源 URI，客户端再去订阅或拉取更多上下文。
+
+      一个很关键的兼容性建议是：当工具返回 structuredContent 时，也“顺手”在 text content 里返回序列化后的 JSON（原文的 backward compatibility 建议）。  
+      这样做的直觉是：即便有的 client/模型暂时不吃 structuredContent，仍能从文本里拿到同一份信息。
+
+  - type: md
+    title: 错误语义：Protocol Errors vs Tool Execution Errors
+    body: |
+      MCP 特别强调“错误的语义分层”，因为这直接影响模型是否能自修复。
+
+      **Protocol Errors（协议错误）**  
+      走 JSON-RPC 的标准错误路径，用于这类问题：
+      - tool 不存在（unknown tools）  
+      - 请求不符合 schema（malformed requests）  
+      - server 端结构性错误
+
+      直觉上：协议错误意味着“请求形态就错了”，模型往往更难自己修回来（因为它可能根本不知道协议要求什么）。
+
+      **Tool Execution Errors（执行错误）**  
+      在工具结果里用 `isError: true` 表示，例如：
+      - API 调用失败  
+      - 输入校验失败（日期格式不对、数值超范围）  
+      - 业务逻辑错误
+
+      原文强调：执行错误应该包含“可行动反馈”（actionable feedback），例如告诉模型期望的日期格式、允许的取值范围、下一步可重试的参数。  
+      并且 client **应该**把这类执行错误提供给语言模型，以便模型自纠错后重试。
+
+  - type: md
+    title: 安全分工：server 必须做什么，client 应该做什么
+    body: |
+      原文在 Security Considerations 里把职责拆得很清楚：
+
+      **Server MUST（服务端硬要求）**  
+      - 校验所有工具输入  
+      - 实施访问控制  
+      - 对调用做限流  
+      - 清洗工具输出
+
+      **Client SHOULD（客户端强建议）**  
+      - 对敏感操作提示用户确认  
+      - 在调用前向用户展示 tool inputs（防止恶意/误操作导致数据外泄）  
+      - 在把结果喂给 LLM 前验证 tool results  
+      - 为 tool calls 设置超时  
+      - 记录工具使用日志以便审计
+
+      这套分工对 agent-builder 的启发是：安全不只是“加一个审批按钮”，也不只是“server 做输入校验”。
+      你需要同时考虑“模型是否会被诱导去外泄/越权”以及“工具是否会被滥用”，并把防线放在最能阻断风险的位置。
+
+  - type: md
+    title: 练习：写一个“可自修复”的 MCP 工具
+    body: |
+      选一个你常见的工具能力（例如：`search_docs`、`read_file`、`get_workflow_status`），写一份工具草案（不用真的实现 server）：
+
+      1) 写出 `name`、`description`、`inputSchema`（尽量约束字段类型与必填）  
+      2) 设计一个 `outputSchema`（至少包含你希望模型稳定读取的 3-5 个字段）  
+      3) 设计两类错误示例：  
+         - 一个 protocol error（例如 tool 名写错或 request 不合法）  
+         - 一个 tool execution error（例如日期格式错误），并写出你希望返回给模型的“可行动反馈”
+
+      检验标准是：如果模型第一次填错参数，它能否根据你返回的错误信息自己修正并重试？
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2025-11-25
+      - 来源：MCP
+      - 建议：阅读原文时建议重点看三段：1) model-controlled 但不强制 UI 的交互模型；2) Tool 定义与 input/output schema 的约束；3) 错误语义分层（Protocol vs Execution）与安全分工（server MUST / client SHOULD）。
+
+  - type: url
+    title: "原文：Tools - Model Context Protocol"
+    url: https://modelcontextprotocol.io/specification/2025-11-25/server/tools
+    mode: open
 
   - type: md
     title: 时效性提示（可能过时）
     body: |
-      本文是 MCP 协议 **2025-11-25 revision** 的规范快照。
-      协议字段/最佳实践可能在后续 revision 更新；做实现/对接时以 MCP 最新规范为准，本课关注其核心抽象（tools/list、tools/call、schema、错误语义与安全分工）。
+      这是一份 MCP 协议在 2025-11-25 revision 的规范快照；字段与最佳实践可能在后续 revision 演进。
+      如果你要做真实实现/对接，请以 MCP 最新规范为准；本课关注其稳定抽象：发现（tools/list）、调用（tools/call）、schema 约束、结果表达与错误语义分层。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) model-controlled 表示模型可以根据上下文自动发现/调用工具，但协议并不限定你必须用怎样的 UI；敏感操作确认、审计等往往应该在 client 侧实现。  
+      2) schema 的价值在于“可调试 + 可自修复 + 可验证”：模型更容易填参，错了也更容易从执行错误里学会怎么改。  
+      3) tools/list / tools/call 解决“静态发现与调用”，list_changed 解决“运行时工具集变化”；当工具集会随权限/租户/运行时配置变化时，它会变得更重要。  
+      4) 安全需要两边配合：server 做校验/访问控制/限流/清洗，client 做确认/展示输入/验证输出/超时/审计；缺一边都会留下可被利用的缝隙。

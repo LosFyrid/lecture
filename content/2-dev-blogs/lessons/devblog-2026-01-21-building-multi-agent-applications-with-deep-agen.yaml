@@ -1,32 +1,141 @@
 id: devblog-2026-01-21-building-multi-agent-applications-with-deep-agen
-title: "Building Multi-Agent Applications with Deep Agents"
+title: "Subagents + Skills：隔离上下文、渐进披露与多模型委派"
 summary: |
-  文章把“多 agent”落到两个一等公民原语：**subagents**（隔离上下文的委派执行）与 **skills**（能力的渐进披露），并把它们与 context rot/上下文膨胀问题直接关联。
+  这篇文章用 Deep Agents 提出构建 multi-agent 的两个“一等原语”：subagents（隔离上下文的委派执行）与 skills（能力的渐进披露）。subagents 主要解决 context bloat：把探索性工具调用留在子上下文里，主 agent 只接收压缩后的结果，避免进入高上下文低智区（dumb zone）。skills 则把流程能力写进 `SKILL.md` 文件：主上下文只常驻 name/description，只有当需要时才读取正文，从而避免一开始把几十个工具/流程塞满窗口。原文还给出一组非常可迁移的实践要点：清晰描述、详细 system prompt、最小化工具集、以及“subagents 与 skills 常常组合使用”。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2026-01-21
-      - 来源：LangChain
-      - URL：https://blog.langchain.com/building-multi-agent-applications-with-deep-agents
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LangChain/Agents_and_Tooling/2026-01-21__building-multi-agent-applications-with-deep-agents__4079bd43e8.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      “做 multi-agent”很容易被误解成“并行跑多个模型”。但原文的主线更工程化：multi-agent 的关键价值经常来自 **上下文管理与能力组织**，而不是并行本身。
+
+      这节课围绕两个模式建立直觉：
+
+      1) 为什么 subagent 能缓解 context bloat？它到底隔离了什么，主 agent 又接收什么？  
+      2) skills 的“渐进披露（progressive disclosure）”是什么意思？为什么它能减轻工具/流程的 token 负担？  
+      3) subagents 与 skills 的最小实践约束是什么：描述怎么写、工具集怎么控、输出格式怎么约定？  
+      4) 什么时候只用其中一个就够了，什么时候更适合两者组合？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：context bloat、subagent 与 progressive disclosure
     body: |
-      - 主题：subagents、context isolation、progressive disclosure、skills、tool minimization、multi-model delegation、parallelization
-      - 要点：
-        - 文章把“多 agent”落到两个一等公民原语：**subagents**（隔离上下文的委派执行）与 **skills**（能力的渐进披露），并把它们与 context rot/上下文膨胀问题直接关联。
-        - subagents 的核心价值是解决 context bloat：当主 agent 需要做大量探索性工具调用（网页搜索/文件读取等），把这些步骤都留在主上下文会很快进入“高上下文低智区”；subagent 在自己的窗口里做 20 次工具调用，主 agent 只接收最终总结，从而保持主上下文干净。
-        - subagents 适用的四类场景：
-          - Context preservation：探索性步骤多、主上下文容易被淹没；
-          - Specialization：给不同子 agent 配不同指令/工具，形成分工；
-          - Multi-model：对子任务用更小/更快模型，主 agent 用更强模型；
-          - Parallelization：子 agent 并行执行降低总体延迟。
-        - subagent 配置的关键工程要点（可迁移）：
-          - description 要清晰（主 agent 依赖描述选择子 agent）；
-          - system prompt 要写出工具使用方式与输出格式，并对长度设限（例如要求 sources、限制 500 words）以减少回传噪音；
-          - 工具集要最小化（只给子 agent 完成该子任务所需的工具，避免工具混淆）。
-        - skills 的定位是 progressive disclosure：先把 skill 的 name/description 放进上下文；只有当 agent 判断需要时才读取 `SKILL.md` 正文，把具体步骤/命令/脚本加载进当前上下文，避免一开始就把几十个工具/流程塞满窗口。
-        - 文章强调二者不是互斥：常见组合是“skills 定义可复用流程，subagents 执行复杂多步工作”；甚至子 agent 也可以按需加载 skills 来控制自己的上下文膨胀。
+      **Context bloat（上下文膨胀）**  
+      当 agent 在一个任务里做了大量 web 搜索/文件读取/工具调用后，中间结果会把 context window 填满。原文引用了 context rot 的观察：上下文越满，模型越容易变“笨”，HumanLayer 把这种高上下文区称为 “dumb zone”。
+
+      **Subagent（子 agent）**  
+      一个带“独立上下文窗口”的执行单元。主 agent 把子任务委派给 subagent；subagent 在自己的上下文里完成多步探索，最后只回传最终结果（通常是压缩后的总结/结构化产物）。
+
+      **Skills（技能文件）**  
+      一种把“可复用流程/指令”写进 `SKILL.md` 的方式。主 agent 先看到 skill 的 name/description；只有当它判断需要时，才读取 skill 的正文步骤。
+
+      **Progressive disclosure（渐进披露）**  
+      把“可能会用到的能力”分成两层：  
+      - 常驻层：名字 + 简短描述（低 token）  
+      - 按需层：正文步骤/命令/注意事项（高 token，仅在需要时加载）
+
+  - type: md
+    title: Subagents：用隔离上下文避免进入 dumb zone
+    body: |
+      原文对 subagents 的动机非常明确：当主 agent 需要做几十次工具调用时，如果把每一步工具结果都留在主上下文里，系统会很快进入 context bloat，随后任务质量下降。
+
+      subagent 的核心操作是“把探索留在子上下文”：
+
+      - subagent 可以在自己的窗口里做 20 次工具调用（搜索、读取、筛选）  
+      - 主 agent 只接收 subagent 的最终输出（例如一段总结、一个结构化列表、带来源链接的要点）
+
+      这样主上下文保持干净，更像“高层决策与合成”的工作台。
+
+  - type: md
+    title: 什么时候用 subagents：四个典型动机（原文清单）
+    body: |
+      原文列出 subagents 的四类典型使用动机：
+
+      1) **Context preservation**：多步任务会把主上下文塞满（例如探索代码库、深度检索资料）。  
+      2) **Specialization**：给子 agent 配专门的指令与工具，让它成为垂直专家（甚至由不同团队维护）。  
+      3) **Multi-model**：子 agent 可以用更小/更快模型，主 agent 用更强模型；在成本/延迟上做分层。  
+      4) **Parallelization**：多个子 agent 可同时运行并回传结果，降低总体延迟或提高覆盖。
+
+      注意：这些动机并不要求你使用某个特定库。即便你用的是自研框架，也可以把 subagent 理解成“带独立上下文与受限工具集的委派执行”。
+
+  - type: md
+    title: Subagents 的实践要点：描述清晰、system prompt 详细、工具集最小化
+    body: |
+      原文给了三条非常可迁移的 best practices：
+
+      **1) 写清晰的 description**  
+      主 agent 会依赖 description 决定“该不该调用这个 subagent”。描述越含糊，路由越不稳定。
+
+      **2) system prompt 要够详细**  
+      不是只说“你是研究员”，而是要写出：怎么拆问题、怎么用工具、输出什么格式、字数上限、是否要给 sources 等。  
+      原文甚至建议对输出长度做硬约束（例如 <500 words），避免子 agent 把一大段噪声回传给主上下文。
+
+      **3) 最小化工具集（tool minimization）**  
+      只给 subagent 完成子任务所需的工具。工具越多、越重叠，模型越容易误用；而且“工具定义本身”也会占用上下文预算。
+
+  - type: md
+    title: Skills：把流程写进 SKILL.md，用渐进披露管理 token
+    body: |
+      skills 解决的是另一个常见问题：工具与流程越来越多时，你不想把所有说明一次性塞进 system prompt。
+
+      原文的 skills 机制很像“可加载的操作手册”：
+
+      - skill 的 name/description 预先加载进上下文（便于模型知道“我有哪些能力”）  
+      - skill 的正文步骤只有在需要时才读取（减少 token bloat）
+
+      原文引用 agentskills.io 的 spec，并给出一个典型目录结构：
+
+      ```text
+      .deepagents/skills/
+      ├── deploy/SKILL.md
+      └── review-pr/SKILL.md
+      ```
+
+      每个 `SKILL.md` 既有 YAML frontmatter（name/description/version/tags 等元数据），也有正文（具体步骤与注意事项）。
+
+  - type: md
+    title: 选择 subagents 还是 skills？以及为什么常常两者都用
+    body: |
+      原文给了一个非常实用的对照表（这里用中文重述）：
+
+      - 需要把复杂多步工作委派出去、隔离上下文 → subagents  
+      - 需要复用一套流程/指令（可移植、可版本化） → skills  
+      - 工具太多导致 token bloat → skills（先描述、按需加载正文）  
+      - 想把“流程能力”在多个 agent 之间共享 → skills（它们本质是文件）
+
+      原文也强调：很多系统会同时使用两者——skills 定义流程，subagent 执行复杂多步工作；甚至 subagent 自己也可以按需加载 skills 来控制它的上下文膨胀。
+
+  - type: md
+    title: 练习：为你的项目写 1 个 subagent + 2 个 skills
+    body: |
+      选一个你正在做（或想做）的 agent 项目，完成下面三件事：
+
+      1) 设计一个 subagent：写出 name、description、system prompt（含输出格式与长度上限），并列出它的最小工具集。  
+      2) 写两个 skills（`SKILL.md`）：每个 skill 用 5-10 行正文写清楚步骤，并在 frontmatter 里写 name/description。  
+      3) 设计组合方式：当主 agent 接到任务时，哪些环节交给 subagent，哪些流程通过 skills 按需加载？
+
+      检验标准：当任务变长、工具调用变多时，你的主 agent 上下文是否仍能保持“干净、聚焦、可合成”？
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-01-21
+      - 来源：LangChain
+      - 建议：阅读原文时建议重点看三块：1) subagents 如何用“隔离上下文”解决 context bloat（含 general-purpose subagent 的例子）；2) subagent best practices（description、system prompt、tool minimization、输出长度限制）；3) skills 的渐进披露机制与 `SKILL.md` 结构，并对照原文“选择模式”表格理解两者的组合方式。
+
+  - type: url
+    title: "原文：Building Multi-Agent Applications with Deep Agents"
+    url: https://blog.langchain.com/building-multi-agent-applications-with-deep-agents
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      原文的代码示例基于 Deep Agents 的当时 API（例如 `create_deep_agent()` 的参数、backend 选项、skills 的加载方式）；这些实现细节可能随版本变化。
+      更可迁移的是两条机制：subagents 的“上下文隔离 + 压缩回传”，以及 skills 的“渐进披露（先描述、按需加载正文）”。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) subagent 缓解 context bloat 的关键在于：探索性工具调用与中间结果留在子上下文里，主 agent 只接收最终压缩产物，从而避免进入 dumb zone。  
+      2) skills 的渐进披露把能力说明分成两层：常驻的 name/description + 按需加载的正文步骤；它能显著降低“工具/流程说明占用的 token”。  
+      3) subagents 的稳定性高度依赖工程约束：description 影响路由、system prompt 影响执行与输出契约、tool minimization 影响误用率与上下文负担。  
+      4) 两者常常组合：skills 负责“把流程写成可共享文件”，subagent 负责“在隔离上下文里跑复杂多步任务”，再把干净结果回传主线。

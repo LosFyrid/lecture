@@ -1,33 +1,206 @@
 id: devblog-2025-07-03-context-engineering-guide-techniques-for-ai-agen
-title: "Context Engineering Guide: Techniques for AI Agents | LlamaIndex"
+title: "Context 工程策略清单：resource selection、排序压缩、结构化输出与 workflow"
 summary: |
-  文章把 context engineering 视为“有用的抽象”：它提醒我们不只要写 prompt，还要把 context window 当作要精心策划的资源（因此它“像 RAG，但不止是 RAG”）。
+  把 context engineering 当作“有用的抽象”：它让我们把注意力从“写一句更巧的 prompt”转向“如何在每一步构造刚好够用的输入”。文章把问题归纳为两大工程挑战：选对上下文（resource selection）以及让上下文装得下（ordering/compression）。并进一步给出几类可迁移策略：多知识库/多工具选择、排序与压缩、长期记忆块、结构化信息（输出 schema 与结构化抽取）、以及 workflow engineering（用多步可验证流程避免上下文过载）。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2025-07-03
-      - 来源：LlamaIndex
-      - URL：https://www.llamaindex.ai/blog/context-engineering-what-it-is-and-techniques-to-consider
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LlamaIndex/Agents_and_Tooling/2025-07-03__context-engineering-guide-techniques-for-ai-agents-llamaindex__4ce71bef0e.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      很多人听到 context engineering，会下意识把它等同于“RAG 做得更好”，或者“prompt 写得更长”。这篇文章的主张更接近一个工程抽象：
+      **context engineering 的核心是“管理 context window 这块有限资源”，并且不只发生在检索那一步。**
+
+      本课围绕几个问题展开：
+
+      1) context engineering 和 prompt engineering / RAG 的边界是什么？为什么作者说“像 RAG，但不止是 RAG”？  
+      2) 一个 agent 的 context 通常由哪些部分组成？哪些部分是最容易被忽略但最影响效果的？  
+      3) 两个核心挑战是什么：如何选对上下文？如何在有限窗口里装得下？  
+      4) 面对多知识库、多工具、多轮任务时，有哪些可迁移的策略（选择、排序、压缩、结构化、工作流）？  
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：把“策略名”翻译成可实现的机制
     body: |
-      - 主题：context 组成、resource selection、ordering & compression、long-term memory blocks、structured outputs、workflow engineering
-      - 要点：
-        - 文章把 context engineering 视为“有用的抽象”：它提醒我们不只要写 prompt，还要把 context window 当作要精心策划的资源（因此它“像 RAG，但不止是 RAG”）。
-        - 列出 agent context 的常见组成（把“工具定义/工具返回/结构化输出/全局状态”显式纳入）：
-          - system prompt/指令、用户输入、短期历史、长期记忆、从知识库或外部 API/MCP 获取的信息、工具与其定义、工具响应、结构化输出约束、全局 state/scratchpad。
-        - 将问题拆成两类工程难点：**选哪些上下文**，以及**如何让它们在上下文上限内“装得下”**。
-        - 策略 1：知识库/工具选择（resource selection）。真实 agent 往往面对多个知识源与多个工具；在“检索内容”之前，LLM 先需要“关于可用资源的上下文”，才能选对要查询的 KB/工具。
-        - 策略 2：ordering / compression。为了省 token，可以在检索后先 summarization 再入窗；并且内容顺序也会影响效果，例如“日期相关性”强的任务可在检索后做排序/过滤，把最新/最相关的内容放前面（文中给了按 date cutoff 排序的示例代码思路）。
-        - 策略 3：长期记忆设计。长期记忆不是“要不要”，而是“用哪种、返回多少”。文中给出可组合的 memory block 例子：
-          - 向量记忆（批量存取聊天片段）；
-          - 事实抽取记忆（从历史中抽 facts）；
-          - 静态记忆（固定背景信息）。
-        - 策略 4：结构化信息（Structured Outputs）。一个常见错误是把所有上下文都塞进去；结构化输出可以双向工作：
-          - 对外：要求模型按 schema 输出，便于下游自动化；
-          - 对内：把长文档先抽取成结构化结果，再把结构化结果作为“压缩后的上下文”供后续 agent 步骤使用。
-        - 策略 5：workflow engineering。与其把所有信息塞进一次 LLM 调用，不如把复杂工作拆成一系列可验证的步骤：明确何时调用 LLM、何时用确定性逻辑/工具，并在步骤间做验证、错误处理与回退；这样能从结构上避免 context overload。
+      **Context engineering**  
+      把 context window 当作有限预算，在每一步把“刚好够用的信息”以可消费的格式提供给模型。
+
+      **Resource selection（资源选择）**  
+      在检索“内容”之前，先决定“去哪个资源找”：哪个知识库、哪个工具、哪个 API、更偏向哪类来源。
+
+      **Ordering（排序）**  
+      即使召回的内容相同，放进上下文的顺序不同，效果也可能不同；排序常用于把最相关/最新/最可靠的片段放在更显著的位置。
+
+      **Compression（压缩）**  
+      不是简单变短，而是把长内容变成“可继续执行的状态或证据入口”，在不丢关键约束的前提下减少 token 占用。
+
+      **Long-term memory（长期记忆）**  
+      跨会话保存的信息（偏好、事实、项目摘要），按需召回。工程难点往往在“返回多少、如何避免噪声与越权注入”。
+
+      **Structured outputs / structured information（结构化信息）**  
+      结构化既可以约束模型“输出什么样的格式”，也可以作为内部压缩手段：先把长文档抽取成结构化字段，再把这些字段作为后续步骤的上下文。
+
+      **Workflow engineering（工作流工程）**  
+      不把所有信息塞进一次 LLM 调用，而是把复杂任务拆成一系列可验证步骤：每步有各自的输入、输出、校验与回退。
+
+  - type: md
+    title: Context 由什么组成：比“检索片段”更宽的输入清单
+    body: |
+      文章给了一个很务实的提醒：在真实系统里，context 不只有“检索到的文档片段”。常见组成包括：
+
+      - system prompt / instructions（行为规则与约束）
+      - user input（当前任务）
+      - short-term memory / chat history（对话历史）
+      - long-term memory（跨会话记忆）
+      - retrieved information（来自知识库/外部 API/工具的证据）
+      - tools & tool definitions（工具定义本身也是上下文）
+      - tool responses（工具返回的 observation）
+      - structured outputs（输出 schema；也可作为“压缩后的结构化上下文”反向提供给下一步）
+      - global state / scratchpad（跨步骤共享的状态或笔记）
+
+      这份清单的价值在于：它逼迫你回答一个工程问题——**你要管理的不只是检索，还包括工具定义、工具返回、状态与输出结构。**
+
+  - type: md
+    title: 两大挑战：选对上下文，以及让它装得下
+    body: |
+      文章把 context engineering 的困难收敛成两个问题：
+
+      **挑战 A：选哪些上下文（selection）**  
+      多知识库、多工具、多记忆源时，“去哪找”本身就是一个决策问题；选错资源会让后续再怎么压缩都无济于事。
+
+      **挑战 B：怎么让上下文装得下（fit in window）**  
+      即使选对了资源，召回的内容也可能太长；需要排序、过滤、总结、结构化抽取，来把 token 花在最影响决策的部分上。
+
+      下面的策略清单，可以看成围绕这两大挑战给出的不同切面答案。
+
+  - type: md
+    title: 策略 1：Knowledge base / tool selection（先选资源，再取内容）
+    body: |
+      文章强调：很多 agent 并不是只对一个向量库做问答，而是同时面对多个知识库与多个工具。
+
+      一个容易忽略的事实是：在检索内容之前，模型首先需要“关于资源的上下文”——它需要知道有哪些知识库/工具可选、各自能做什么、适用边界是什么。
+
+      因此 resource selection 往往对应一类系统能力：
+
+      - 维护一个资源目录（capability catalog）：列出可用知识源与工具的能力摘要  
+      - 在每次检索前先做路由：判断这一轮更应该查哪个资源（或哪些资源）
+
+      这一步做得好，后续的 ordering/compression 才有意义；否则你会在“错误材料”上不断优化格式。
+
+  - type: md
+    title: 策略 2：Ordering / compression（把 token 花在更值的位置）
+    body: |
+      当召回结果较多时，文章给出两类常见做法：
+
+      **检索后先总结再入窗**  
+      先把一批检索结果压成更短的摘要或结构化字段，再放进上下文，用更少 token 携带更高信噪比的信息。
+
+      **排序与过滤同样重要**  
+      有些任务对“新旧”非常敏感：同样相关的内容，日期更近的可能更有用。文章举了一个按日期 cutoff 过滤并排序的思路：先过滤掉过旧数据，再按日期排序，把更相关/更新的信息放在更显著位置。
+
+      这里的工程直觉是：**上下文不仅是“有没有”，还包括“以什么顺序、以什么粒度呈现”。**
+
+  - type: md
+    title: 策略 3：Long-term memory blocks（长期记忆不是一个开关）
+    body: |
+      文章把长期记忆讲得更像“可组合的组件选择”，而不是“要不要上向量库”：
+
+      - 有的记忆适合存聊天片段（批量存取）  
+      - 有的记忆适合抽取事实（从历史中抽 facts）  
+      - 有的记忆适合保存静态背景（固定信息）
+
+      真正影响体验的往往是两个参数：
+
+      1) 你需要哪种记忆类型来支持你的任务？（偏好/事实/示例/规则）  
+      2) 每次要返回多少？返回太少可能丢关键信息，返回太多会把噪声塞进上下文并推高成本。
+
+      从 context engineering 角度看，长期记忆的关键是“召回契约”：何时召回、召回哪些字段、如何解释来源、如何避免不合适的信息注入当前任务。
+
+  - type: md
+    title: 策略 4：Structured information（结构化既是输出，也可以是压缩）
+    body: |
+      文章指出一个常见错误：把所有上下文都塞进去，即使很多内容并不需要以原文形式进入窗口。
+
+      结构化输出（schema）能在两个方向上发挥作用：
+
+      **方向 A：约束模型输出**  
+      要求模型按 schema 输出，便于下游自动化执行与校验。
+
+      **方向 B：把长内容先抽取成结构化字段，再作为“压缩后的上下文”**  
+      例如先从长文档中抽取关键字段（条款、时间、金额、实体关系），再把这些字段作为后续步骤的输入，而不是把整份文档反复塞进上下文。
+
+      文章用一个文档抽取工具做例子（先抽取→再使用抽取结果），但可迁移的思想是：**结构化是一种强力的压缩方式，因为它把“模型真正需要的信息”从原文里剥离出来。**
+
+  - type: md
+    title: 策略 5：Workflow engineering（用多步流程避免上下文过载）
+    body: |
+      文章最后强调：与其把复杂任务压在一次 LLM 调用里，不如显式设计一个工作流：
+
+      - 定义清晰的步骤序列（每一步的目标是什么）  
+      - 控制每一步的上下文（每步只带必要信息）  
+      - 在步骤之间加入验证、错误处理与回退  
+
+      从 context engineering 的角度看，workflow 的价值在于：
+      它把“上下文选择与压缩”分摊到多步，每步都有更小、更聚焦的输入窗口，从结构上降低 context overload 的概率。
+
+  - type: md
+    title: 把抽象词放到具体场景里：一个文档 agent 的最小 workflow
+    body: |
+      想象你要做一个“长文档问答 + 自动填表”的 agent：
+
+      - 输入是一份几十页的合同或论文  
+      - 用户可能问：“付款条件是什么？违约条款有哪些？把关键字段填进表格”
+
+      一个更可控的做法不是“把全文塞进模型”，而是：
+
+      1) 先做结构化抽取（structured information）：抽出关键条款与字段  
+      2) 再根据用户问题选择相关字段与原文片段（resource selection + select）  
+      3) 最后按 schema 输出填表结果（structured outputs）  
+
+      这个三步流程的关键收益是：每一步的上下文都更小、更聚焦，且更容易校验与回归测试。
+
+  - type: md
+    title: 工程化落地：实践清单
+    body: |
+      - 为你的系统写一份“context 组成清单”：system/user/history/memory/tools/tool outputs/schema/state 各来自哪里。  
+      - 建一个最小资源目录（capability catalog）：让模型在检索前先能“选资源”。  
+      - 给检索结果加一个排序/过滤层：特别是当“新旧/来源/可信度”会影响结论时。  
+      - 把结构化输出当作压缩工具：先抽字段，再把字段喂给后续步骤。  
+      - 用 workflow 把复杂任务拆成可验证步骤：每步输入更小，错误更可定位。
+
+  - type: md
+    title: 常见误区：读完后可以用来做自检
+    body: |
+      - 把 context engineering 等同于“RAG 做得更好”：忽略了工具定义、工具返回、状态与输出结构同样是上下文。  
+      - 只做“召回”，不做“排序/过滤/压缩”：把大量同等权重的信息塞进窗口，让模型自己决定重要性。  
+      - 长期记忆当作开关：不定义召回契约，结果要么召回太少不够用，要么召回太多制造噪声。  
+      - schema 只用于最终输出：没有把结构化抽取当作内部压缩手段。  
+      - 把复杂任务塞进一次调用：缺少 workflow，导致上下文越来越大、错误越来越难归因。
+
+  - type: md
+    title: 练习：设计一个“先选资源→再取内容→再结构化输出”的小系统
+    body: |
+      选一个你熟悉的任务（例如实验记录问答、代码库问答、合同问答），写下：
+
+      1) 资源目录：有哪些知识库/工具？各自适用什么问题？  
+      2) 选择策略：在什么条件下选哪个资源？（至少写出 3 条规则或一个路由 prompt）  
+      3) 压缩策略：检索结果如何排序/过滤/总结，才能进上下文？  
+      4) 输出 schema：最终结果用什么字段表达，便于校验与自动化？
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2025-07-03
+      - 来源：LlamaIndex
+      - 建议：阅读原文时可以按“两个挑战 + 五类策略”来核对：selection（资源选择）与 fit（排序/压缩）是主线；长期记忆块、结构化信息、workflow engineering 是把主线落到工程系统里的常见路径。
+
+  - type: url
+    title: "原文：Context Engineering Guide: Techniques for AI Agents | LlamaIndex"
+    url: https://www.llamaindex.ai/blog/context-engineering-what-it-is-and-techniques-to-consider
+    mode: open
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) “像 RAG 但不止是 RAG”的意思是：检索只是 context 的一部分；工具定义、工具返回、状态与输出结构同样决定模型能否完成任务。  
+      2) 两个核心挑战是 selection 与 fit：先选对资源，再把内容排序/压缩到窗口能承载的形态。  
+      3) 结构化信息的价值不止在输出：把长文档先抽字段再入窗，本质上是在做更强的压缩。  
+      4) workflow engineering 的作用是把上下文压力分摊到多步：每步输入更小、更容易校验，整体更可靠。  
+      5) 一个落地检验是：你能否把“资源目录、选择策略、压缩策略、输出 schema”四件事写成代码或配置，而不是只写在 prompt 里？

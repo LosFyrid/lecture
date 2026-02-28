@@ -1,41 +1,153 @@
 id: devblog-2025-12-15-secure-filesystem-access-for-coding-agents-llama
-title: "Secure Filesystem Access for Coding Agents | LlamaIndex"
+title: "受控文件系统：虚拟工作区 + MCP + hooks 防绕过"
 summary: |
-  问题 1（权限）：给 coding agent 真实文件系统写权限会带来误删/破坏风险；纯 human-in-the-loop 虽安全但打断自治（难后台运行）。
+  这篇工程博客讨论 coding agents 的一个高频痛点：文件系统访问。原文把问题拆成两类——(1) 写/改文件的权限与误操作风险；(2) 复杂非结构化文档（PDF/Slides/Docs）导致的理解退化——并给出一条可迁移的工程路线：让 agent 在虚拟化文件系统（副本）里自由试错，把真实文件系统变成“需要确认的落盘边界”；同时把文件操作全部封装成统一的工具（MCP），再用 hooks 禁止模型绕过内置工具，最后用 workflow/harness 把准备环境、收集输入、运行 agent 做成可快照/可恢复的流水线。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2025-12-15
-      - 来源：LlamaIndex
-      - URL：https://www.llamaindex.ai/blog/making-coding-agents-safe-using-llamaindex
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LlamaIndex/Safety_and_Security/2025-12-15__secure-filesystem-access-for-coding-agents-llamaindex__e1d4807ab3.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      给 coding agent 文件系统权限时，很多团队会在两种极端之间摇摆：
+
+      - 给它真实目录的写权限 → 速度快，但一次误删/乱改可能直接毁掉仓库。  
+      - 全程 human-in-the-loop 审批 → 更安全，但 agent 很难后台运行，自治性被打断。
+
+      原文提供了第三条路：**把真实文件系统从“工作区”降级成“最终提交边界”**，让 agent 在副本上大胆执行，在关键时刻再选择是否把变更同步回真实目录。
+
+      读完这节课，你应该更清楚：
+
+      1) 为什么“虚拟文件系统（virtualized FS）”能同时改善安全与自治？它到底在保护什么？  
+      2) 为什么仅靠 system prompt 让模型“不要用内置工具”并不可靠？hooks 在这里解决了什么绕过问题？  
+      3) 把文件操作封装成 MCP tools 有什么额外收益（schema、错误语义、审计）？  
+      4) 对 PDF/Slides/Docs 这类非文本文件，为什么“先解析再入库”比“让模型直接读二进制”更稳？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：虚拟工作区、hooks 与“落盘边界”
     body: |
-      - 主题：filesystem virtualization、AgentFS、MCP wrapper tools、deny built-in tools via hooks、unstructured docs parsing、workflow harness、human-in-the-loop
-      - 要点：
-        - 问题 1（权限）：给 coding agent 真实文件系统写权限会带来误删/破坏风险；纯 human-in-the-loop 虽安全但打断自治（难后台运行）。
-        - 问题 2（非结构化文档理解）：PDF/幻灯片/Docs 等在复杂场景下会让 agent 理解退化，需要更高质量的解析与抽取。
-        - 作者给出的工程路线是“**别让 agent 直接碰真实 FS**”：用虚拟文件系统承接读写，把 destructive 操作限制在副本上。示例使用 AgentFS（SQLite 驱动的虚拟 FS/缓存/registry），从 infra 角度更易控、更可审计。
-        - 为了让 agent 只能通过“受控 FS”，做法是：
-          - 用 AgentFS SDK 实现 read/write/edit/list/exists 等基础操作；
-          - 把这些操作包装成 MCP server 的工具（明确 schema 与错误返回），让模型通过 MCP tool 调用访问虚拟 FS；
-          - 同时**禁用/拒绝** agent 的内置 Read/Write/Glob/Edit 工具，防止绕过。
-        - 防绕过的关键护栏：在 tool 执行前加 `PreToolUse` hook，对内置 filesystem 工具调用一律 deny，并给出可操作的拒绝原因（“只能用 filesystem MCP”）；这样即使模型“幻觉”调用了内置工具，也会被拦下。
-        - 解决非结构化文档：利用虚拟 FS 的“文件载入阶段”把 PDF/Docx/PPTX 等先用 OCR/解析服务（示例中用 LlamaParse）提取成文本，再把文本写入虚拟 FS，让后续 agent 读取的是高质量文本而不是原始二进制。
-        - 用 workflow 当 harness：把“准备虚拟 FS → 收集用户 prompt → 运行 agent”做成可恢复、可快照、可插入 human-in-loop 的分步流程；好处是每一步可验证，且更容易在关键点停下来问人/恢复会话。
-        - 可迁移的抽象：
-          - 用“受控的虚拟工作区”替代“直接操作真实环境”；
-          - 用协议化工具（MCP）封装权限边界；
-          - 用 hooks 把“禁止绕过”做成硬约束；
-          - 对非结构化输入先做解析抽取，把文档转成 agent 友好的上下文对象；
-          - 用 workflow 把准备/执行/审批做成可观测、可回放的流水线。
+      **虚拟文件系统 / 虚拟工作区（virtualized filesystem / workspace）**  
+      指 agent 的读写发生在一个可控的副本里，而不是直接作用于真实目录。你可以把它理解成“把仓库复制到一个沙箱里做改动”。
+
+      原文用 AgentFS 作为示例：它是一个 SQLite 驱动的虚拟文件系统，除了读写文件，还可以充当缓存与工具调用 registry。你不一定要用它，但模式是通用的。
+
+      **MCP tools（工具封装）**  
+      把 “read/write/edit/list/exists” 这类文件操作封装成结构化工具，让模型通过工具调用访问虚拟 FS，而不是直接读写真实磁盘。
+
+      **hooks（钩子）**  
+      一段运行时逻辑，插在“工具即将执行前/执行后”。原文用的是：
+      - `PreToolUse`：工具执行前拦截（用于拒绝内置工具、强制走 MCP）  
+      - `PostToolUse`：工具执行后处理（用于在写入/编辑后询问是否把改动同步回真实 FS）
+
+      **落盘边界（persist boundary）**  
+      把“在副本里写”与“提交到真实目录”分成两步。这样 agent 可以保持自治（副本里随便试），而真实系统只在边界处需要更强控制（确认/审计/回滚）。
+
+  - type: md
+    title: 方案 1：禁止访问真实 FS，让 agent 在虚拟副本里工作
+    body: |
+      原文提出一个反直觉但很工程化的做法：与其在真实文件系统上小心翼翼地“给一点点权限”，不如直接**禁止 agent 触碰真实 FS**，转而在虚拟副本里开放更大的操作自由度。
+
+      这种虚拟化带来的保护很具体：
+
+      - 即便 agent 做了破坏性操作（误删、误覆盖），破坏发生在副本里，不会伤到真实仓库。  
+      - 你可以把“最终是否落盘”变成一个清晰的、可审计的步骤，而不是每次写文件都赌一次。
+
+      这也是它能同时改善“安全”和“自治”的原因：它减少了频繁打断（每步都审）的需求，但保留了关键边界处的控制权。
+
+  - type: md
+    title: 方案 2：把文件操作封装成 MCP 工具（read/write/edit/list/exists）
+    body: |
+      原文的实现路径是：先用虚拟 FS SDK 写出一组基础文件操作函数（读、写、编辑、检查存在、列目录），再把它们包装成 MCP server 的 tools（作者称为 `filesystem` MCP）。
+
+      这一层封装的关键收益不只是“能用”：
+
+      - **schema 清晰**：例如 `read_file(filePath: string)`，模型更容易填参，也更容易从错误里自修复。  
+      - **错误语义可行动**：原文示例在读不到文件时返回 `isError: true`，并给出“检查文件是否存在并重试”的反馈，这比抛异常更利于模型下一步修正。  
+      - **审计与限流入口**：所有文件操作都从 MCP tool 流过，你更容易记录、分析、限制高风险行为。
+
+      注意：这里用 MCP 并不意味着必须绑定某个特定模型/IDE；它更像一种“把权限边界协议化”的做法。
+
+  - type: md
+    title: 方案 3：防绕过——禁用内置工具 + PreToolUse 一票否决
+    body: |
+      仅靠 system prompt 告诉模型“不要用 Read/Write/Edit/Glob 这些内置文件工具”并不稳：模型可能因为幻觉、误解或策略偏移而去调用它们。
+
+      原文给了一个非常硬的护栏：在工具执行前加 `PreToolUse` hook，对内置 filesystem 工具的调用一律 deny，并返回明确原因（例如“你不能用内置工具，请改用 filesystem MCP 工具”）。
+
+      这类 hook 的作用可以用一句话概括：**把“约定”变成“强制”**。  
+      system prompt 是软约束；hook 是硬约束。两者叠加，才能在真实运行中更稳定地把流量路由到你希望的安全边界里。
+
+  - type: md
+    title: 方案 4：把“真实落盘”做成可选步骤（PostToolUse + 用户确认）
+    body: |
+      虚拟化之后，一个自然的问题是：那最终怎么把改动同步回真实文件系统？
+
+      原文的做法是：对 MCP 的 `write` / `edit` 工具加 `PostToolUse` hooks，在每次修改后询问用户是否要把变更持久化到真实目录。
+
+      这是一种比“全程审批”更轻的 HITL：
+
+      - agent 在虚拟区内可以连续工作、做多次尝试  
+      - 只有当你要把改动影响到真实仓库时，才需要一次确认
+
+      从系统角度，这个“落盘边界”也更利于做回滚：你可以先在虚拟区跑测试/静态检查，通过后再落盘。
+
+  - type: md
+    title: 方案 5：让非结构化文档可被可靠读取（导入阶段先解析）
+    body: |
+      原文列出的第二个痛点是：复杂文档（PDF、演示文稿、在线文档）会让 agent 的理解退化。
+
+      他们利用“已经有虚拟 FS”这一点，把文档理解问题前置到**加载文件进工作区的阶段**：
+
+      - 文本类文件：原样载入  
+      - 非结构化文件：先用 OCR/解析服务抽取成高质量文本，再把抽取文本写入虚拟 FS
+
+      这样做的直觉是：让 agent 读到的是“干净的文本表示”，而不是二进制文件或低质量的粗糙提取结果。  
+      原文用 LlamaParse 作为解析器示例（支持 PDF、Word、Google Docs、Excel 等），但可迁移的是这条管线：**解析是工作区准备的一部分**。
+
+  - type: md
+    title: 方案 6：用 workflow 当 harness（分步执行 + 可快照/可恢复）
+    body: |
+      最后，原文把这些组件串成一个可运行的 harness：用 workflow 把“准备环境 → 收集 prompt → 运行 agent”做成分步流程。
+
+      它强调 workflow 带来的两个好处：
+
+      - **Stepwise execution（分步执行）**：只有当前一步成功，才触发下一步。准备工作区失败就不会进入 agent loop。  
+      - **Human in the loop + 可恢复状态**：workflow 状态可以快照/恢复，因此你可以在执行中插入人与决策点，也可以恢复之前会话继续跑。
+
+      你可以把 harness 理解成：它不改变模型本身，但它决定了模型“在什么环境里工作、能做什么动作、失败后怎么恢复、哪些地方需要确认”。
+
+  - type: md
+    title: 练习：画出你的“虚拟工作区流水线”
+    body: |
+      选一个你希望 agent 能长期运行的 coding 任务（例如：持续重构、迁移依赖、批量修复 lint），画出一条最小流水线：
+
+      1) 工作区准备：真实目录 → 虚拟 FS（哪些文件要载入？哪些要排除？）  
+      2) 非结构化文件处理：哪些格式需要解析？解析失败如何降级？  
+      3) 文件工具边界：有哪些 MCP tools？每个 tool 的 schema/错误语义怎么写？  
+      4) 绕过防护：哪些内置能力必须 deny？PreToolUse 怎么写？  
+      5) 落盘边界：哪些操作必须确认？哪些可以自动落盘？落盘前你想跑哪些检查？
+
+      目标不是“复刻某个库”，而是把原文的关键机制翻译成你自己的工程接口与边界。
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2025-12-15
+      - 来源：LlamaIndex
+      - 建议：阅读原文时建议按“两个痛点 → 虚拟 FS → MCP tools → hooks 防绕过 → 文档解析导入 → workflow harness”顺序做笔记。尤其留意作者为什么要同时用 system prompt 和 PreToolUse hook（软约束 + 硬约束），以及为什么把“persist to real FS”放在 PostToolUse 的边界上。
+
+  - type: url
+    title: "原文：Secure Filesystem Access for Coding Agents | LlamaIndex"
+    url: https://www.llamaindex.ai/blog/making-coding-agents-safe-using-llamaindex
+    mode: open
 
   - type: md
     title: 时效性提示（可能过时）
     body: |
-      文中示例代码依赖当时的 SDK（如 Claude Agent SDK、AgentFS、Zod/MCP wrapper 等），API 可能随版本变化。
-      本课关注可迁移的安全边界：虚拟工作区/最小权限、协议化工具封装、hooks 禁止绕过、先解析非结构化文档再入窗。
+      原文的具体实现依赖当时的库与 SDK（例如 AgentFS、某些 MCP wrapper、以及示例代码的 hooks 事件名/参数结构），这些 API 可能随版本变化。
+      更可迁移的是边界设计：虚拟工作区隔离真实仓库、文件操作走统一工具面、运行时 hooks 防绕过、非结构化文档在导入阶段先解析成文本、以及用 workflow/harness 管理分步执行与恢复。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) 虚拟 FS 保护的是“真实仓库不被破坏”，同时保留 agent 的自治性：它可以在副本里大胆试错，而你只在落盘边界处做更强控制。  
+      2) 仅靠 system prompt 很难阻止模型偶发调用内置工具；PreToolUse hook 把软约束变成硬约束，能稳定避免绕过。  
+      3) MCP tools 的收益不仅是互操作，还包括：schema/错误语义让模型更易自修复，统一入口便于审计与限流。  
+      4) 非结构化文档“先解析再入库”让 agent 读到高质量文本，从源头减少理解退化；解析应被视为工作区准备的一部分，而不是模型推理时的临时补丁。

@@ -1,35 +1,170 @@
 id: devblog-2025-02-03-constitutional-classifiers-defending-against-uni
-title: "Constitutional Classifiers: Defending against universal jailbreaks"
+title: "系统级 Jailbreak 防线：输入/输出分类器与红队闭环"
 summary: |
-  文章介绍一种“对抗通用 jailbreak（universal jailbreak）”的系统：**Constitutional Classifiers**。它的核心不是再训练一个“更听话的主模型”，而是在模型输入/输出两侧加一层分类器（classifiers）做过滤，阻断绝大多数 jailbreak，同时尽量控制误拒（overrefusal）与额外算力开销。
+  这篇研究文章提出 Constitutional Classifiers：在主模型的输入侧与输出侧各加一层分类器（classifier），用合成数据训练来识别/拦截 jailbreak，从系统层面降低“用户绕过安全训练”的风险。原文给出了两类关键证据（人类红队与自动化合成评测），并把工程权衡说得很具体：要同时看鲁棒性（robustness）、误拒（overrefusal）与额外算力开销（compute overhead），否则“更安全”也可能难以部署。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2025-02-03
-      - 来源：Anthropic
-      - URL：https://www.anthropic.com/research/constitutional-classifiers
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/Anthropic/Research_and_Benchmarks/2025-02-03__constitutional-classifiers-defending-against-universal-jailbreaks__bb6ac706c8.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      许多团队会把安全问题想成“模型是否足够对齐”：如果模型拒绝有害请求，就安全；如果被 prompt 绕过，就不安全。
+
+      这篇文章把视角往前推了一步：即便主模型做过安全训练，你仍然可以（也常常需要）在系统层加防线，尤其当你的 agent 具备执行能力（写文件、发邮件、调用支付/交易接口）时。
+
+      读完本课后，下面问题应该更清晰：
+
+      1) 什么是 jailbreak？什么又算“universal jailbreak（通用 jailbreak）”？为什么它对安全门槛特别致命？  
+      2) 为什么不只依赖主模型的安全训练，而要在输入/输出两侧加独立的分类器？  
+      3) “overrefusal（误拒）”在工程上意味着什么？如何把它当成一个需要治理的指标，而不是一句抱怨？  
+      4) 一套可部署的防线需要哪些闭环：评测、监控、快速响应分别承担什么角色？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：jailbreak、universal jailbreak 与 overrefusal
     body: |
-      - 主题：jailbreak defense、input/output classifiers、synthetic data、overrefusal vs robustness、bug bounty red teaming、CBRN safeguards
-      - 要点：
-        - 文章介绍一种“对抗通用 jailbreak（universal jailbreak）”的系统：**Constitutional Classifiers**。它的核心不是再训练一个“更听话的主模型”，而是在模型输入/输出两侧加一层分类器（classifiers）做过滤，阻断绝大多数 jailbreak，同时尽量控制误拒（overrefusal）与额外算力开销。
-        - 背景：LLM 虽有安全训练，但仍会被 jailbreak 绕过（超长提示、怪异风格等）。对高风险能力（如 CBRN 相关）而言，jailbreak 直接绕开 safeguard，会使 Responsible Scaling 之类的风险门槛失效。
-        - 人类红队结果（prototype 版本）：邀请独立 jailbreakers 参加 bug bounty，要求用单个 jailbreak 让 Claude 3.5 Sonnet（2024-06）回答 10 个“禁止问题”才算通用成功。
-          - **183** 名活跃参与者累计 **>3,000 小时**、两个月，最高悬赏 **$15,000**，最终无人能用单一 jailbreak 让模型回答全部 10 个问题（即未发现 universal jailbreak）。
-          - 但 prototype 的问题是误拒率高、算力成本大，部署性不足。
-        - 自动化评估结果（改进版本的核心证据）：构造 **10,000** 条合成 jailbreak prompts（包含已知有效攻击与针对分类器的绕过攻击），比较“无分类器”与“有分类器”：
-          - 无分类器时，jailbreak 成功率 **86%**（模型仅拒绝 14%）；
-          - 加入 Constitutional Classifiers 后，成功率降到 **4.4%**（>95% jailbreak 被拒绝）。
-        - 同时作者强调权衡：原型能抗“几千小时人类红队”，但 overrefusal/计算开销偏大；更新版本在合成评估上维持相近鲁棒性，并把额外拒绝率压到 **+0.38%**、算力开销降到“moderate”级别（仍非零）。
-        - 系统性视角（可迁移到 agent 安全）：把安全从“单模型行为”扩展为“系统级 guardrail”：输入/输出过滤、流量监控、快速响应修补；并承认在真实世界里攻击者的反馈回路更慢（不像 demo 里能快速试错评分），因此结合运营策略（监控反复触发分类器的用户、快速迭代规则）能进一步提高实战安全性。
+      **Jailbreak**  
+      指用户构造的输入，目标是绕过模型的安全策略，让模型输出它原本应该拒绝的有害内容。原文举了两类常见形态：超长提示（把模型“淹没”在指令里）以及输入风格变形（例如非常规大小写），以此逃过规则与模型的“拒绝习惯”。
+
+      **Universal jailbreak（通用 jailbreak）**  
+      不是“某个技巧能让模型在一个例子上翻车”，而是更苛刻：一个单一的攻击策略，能稳定让模型在一组不同的“禁止问题”上都给出详细回答。  
+      从系统治理角度，它更危险：一旦被发现，攻击者不需要反复试错就能规模化复用。
+
+      **Classifier（分类器）**  
+      一个专门做“是否允许”的模型/模块。它不负责生成长答案，而负责把请求或输出归类为“允许/拒绝/需要升级处理”等。
+
+      **Input classifier / Output classifier**  
+      - 输入侧：在主模型看到用户输入之前，先判断这次请求是否涉嫌 jailbreak 或越界意图。  
+      - 输出侧：在把主模型输出交付给用户之前，再做一次检查，防止“输入漏检”或“模型在中途偏航”。
+
+      **Overrefusal（误拒）**  
+      指系统把本来无害、合理的请求也拒绝了。对产品/科研平台来说，这会直接损害可用性；对 agent 来说，误拒还可能导致任务中断或不断重试，带来额外成本与糟糕体验。  
+      因此 overrefusal 不是“安全团队太保守”的口水仗，它是一个需要被度量与优化的工程指标。
+
+  - type: md
+    title: 架构视角：把“安全”从模型能力变成系统管线
+    body: |
+      Constitutional Classifiers 的核心设计不是“训练一个更听话的主模型”，而是把安全放进一个可组合的管线里：
+
+      1) 用户输入 → **输入分类器**（是否疑似 jailbreak/越界）  
+      2) 通过后 → 主模型生成  
+      3) 主模型输出 → **输出分类器**（是否包含不允许的信息/指令）  
+      4) 通过后 → 才交付给用户（或进入下一步工具调用）
+
+      这种设计的一个可迁移价值在于：它把安全问题拆成两个更可控的子问题：
+
+      - “这次请求在意图上是否越界？”（输入侧更擅长）  
+      - “这次输出在内容上是否越界？”（输出侧更擅长）
+
+      同时，它也天然支持**防御纵深（defense-in-depth）**：就算某一层漏掉了，另一层仍可能拦住。
+
+  - type: md
+    title: 原文的关键证据（1）：人类红队如何测“通用 jailbreak”
+    body: |
+      原文用一项很“运营化”的实验来验证鲁棒性：让真实 jailbreakers 来攻击系统，而不是只在研究者自建的数据集上自测。
+
+      实验设置（原文给得很具体）：
+
+      - 目标模型：Claude 3.5 Sonnet（2024-06 版本）  
+      - 防护：prototype 版 Constitutional Classifiers（用于拦截特定高风险科学知识）  
+      - 测试任务：给参与者一份包含 10 条“禁止问题”的列表；参与者可以使用任何 jailbreaking 技术  
+      - “通用成功”的定义：必须用**单个 jailbreak** 让模型对 **全部 10 条** 都给出详细回答
+
+      结果：
+
+      - 183 名活跃参与者  
+      - 两个月实验期，估算 >3,000 小时投入  
+      - 最高奖金 $15,000  
+      - 最终没有人找到能同时攻破全部 10 条的“universal jailbreak”
+
+      但原文也没有把它包装成“完美解决”：prototype 系统存在明显缺点——误拒较高、计算成本较大，因此“更安全”不等于“可部署”。
+
+  - type: md
+    title: 原文的关键证据（2）：合成评测里，成功率从 86% 降到 4.4%
+    body: |
+      仅靠人类红队还不够：它昂贵、慢、覆盖不均。于是原文还做了自动化评测，并强调它们是互补的：
+
+      - 他们合成生成了 10,000 条 jailbreak prompts，包含当下最有效的一批攻击方式，也包含“专门绕过分类器”的攻击思路。  
+      - 对比了两个系统：  
+        1) 没有分类器防护的版本  
+        2) 受 Constitutional Classifiers 保护的版本
+
+      在这组高级 jailbreak 合成评测中：
+
+      - **无分类器防护时**，jailbreak 成功率是 **86%**（也就是主模型自己只挡住了 14%）。  
+      - **加上 Constitutional Classifiers 后**，成功率降到 **4.4%**（意味着超过 95% 的攻击被拒绝）。
+
+      这组数字的工程意义是：即便主模型已经做过安全训练，在面对“刻意对抗”的输入时，系统级 guardrail 仍然可以带来数量级的提升。
+
+  - type: md
+    title: 可部署性三角：鲁棒性、误拒与算力开销
+    body: |
+      原文反复强调一个现实约束：你不能只盯“拦住了多少攻击”，还需要同时看：
+
+      - **鲁棒性（robustness）**：对强对抗输入是否仍然能拒绝  
+      - **误拒（overrefusal）**：对正常请求是否尽量不伤害可用性  
+      - **算力开销（compute overhead）**：加两层分类器会不会让系统成本/延迟不可接受
+
+      原文指出 prototype 版虽然在“人类红队通用 jailbreak”上表现很强，但误拒与开销偏高；随后他们改进系统，在合成评测上维持相近鲁棒性，并把额外拒绝率控制到很小的量级（原文给出的数字是 **+0.38%**），同时将计算开销降到“moderate”级别（仍然有额外成本，但不至于不可部署）。
+
+      对 agent-builder 来说，这个三角的启发是：安全方案的目标不只是“证明一个上限”，而是“在可接受成本下，把风险分布压到你愿意承担的范围”。
+
+  - type: md
+    title: 把思路迁移到 agent：除了输入/输出，还要考虑“动作层”
+    body: |
+      这篇文章讨论的是“对话系统的输入/输出”。但如果你在构建的是会用工具的 agent，你通常还需要多一层考虑：**模型输出不仅会被用户看到，还可能变成可执行的动作。**
+
+      一个常见的迁移方式是把防线分成三道：
+
+      1) **输入侧（Intent）**：用户这次请求是否在意图上越界？是否有明显的 jailbreak 特征？  
+      2) **输出侧（Content）**：主模型的自然语言输出是否包含不该交付的内容？  
+      3) **工具侧（Action）**：即将执行的 tool call 是否越权、是否触发高风险操作、参数是否可疑？
+
+      你不必把三道都叫“分类器”，但它们都属于同一种系统思想：在关键边界处加“判定 + 阻断 + 记录”，把风险控制变成工程可治理对象。
+
+  - type: md
+    title: 工程化落地：从第一天就能做的最小版本
+    body: |
+      如果你要把这篇文章的思想落地到自己的系统里，一个最小可行版本通常包含：
+
+      1) **明确一份“禁止/允许”的政策（policy）**：不需要一开始就很长，但要能被测试与讨论。  
+      2) **实现输入/输出检查点**：可以先用规则/关键词/小模型做 baseline，再逐步升级成更强的分类器。  
+      3) **把误拒与漏检都记录下来**：误拒样本用于降 overrefusal，漏检样本用于补鲁棒性。  
+      4) **把红队/攻击样本变成回归集**：否则你只是在“打一次仗”，而不是在“建立一条防线”。
+
+      这与原文的姿势一致：用系统性 guardrail 提升稳态安全性，并用持续评测与更新来对抗动态博弈。
+
+  - type: md
+    title: 练习：为你的 agent 设计一条“安全事件回路”
+    body: |
+      选一个你正在构建的 agent（尤其是带工具/执行能力的），回答下面问题并写成一页设计笔记：
+
+      1) 你的输入侧检查要输出哪些标签？（例如 allow / refuse / escalate / needs_human_review）  
+      2) 你的输出侧检查要覆盖哪些“高风险形态”？（例如具体操作步骤、可执行指令、越权请求等）  
+      3) 你要如何度量 overrefusal？用什么“正常请求集”来估计误拒率？  
+      4) 当你发现一次新的绕过方式时，你如何把它加入回归集，并触发一次快速迭代？
+
+      目标不是一次写完“完美安全策略”，而是让你的系统从 Day 0 就具备“发现 → 记录 → 修复 → 回归”的闭环能力。
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2025-02-03
+      - 来源：Anthropic
+      - 建议：阅读原文时建议按顺序抓三件事：1) 为什么把 jailbreak 视为 Responsible Scaling 的关键风险；2) Constitutional Classifiers 的定义（input/output classifiers + synthetic data）；3) 两类评测（人类红队 + 合成评测）如何共同支持“鲁棒性/误拒/算力开销”的三角权衡。
+
+  - type: url
+    title: "原文：Constitutional Classifiers: Defending against universal jailbreaks"
+    url: https://www.anthropic.com/research/constitutional-classifiers
+    mode: open
 
   - type: md
     title: 时效性提示（可能过时）
     body: |
-      对抗安全是动态博弈：jailbreak 手法与防御策略会持续演化，因此文中的成功率/误拒率等结果不应被视为长期保证。
-      本课关注系统思路：输入/输出分类器作为 guardrail、合成数据+红队闭环、与其它防线组合（sandbox、最小权限、监控）。
+      对抗安全是动态博弈：攻击方式、模型版本、分类器训练数据与部署策略都会变化，因此原文给出的具体成功率/误拒率/开销结论不应被当作长期保证。
+      更可迁移的是系统思路：把安全拆成输入/输出（以及工具动作）等边界检查点，并用红队样本与线上监控形成持续更新的闭环。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) universal jailbreak 的“通用性”意味着可复用、可规模化，因此一旦存在会显著削弱任何基于“模型会拒绝”的安全门槛。  
+      2) 在输入/输出两侧加分类器的价值在于：它把安全从“主模型的一次性属性”变成“可组合的系统管线”，并允许你独立调参、独立迭代这两道防线。  
+      3) overrefusal 是可用性成本：你需要用“正常请求集”去度量它，并用误拒样本去驱动阈值与训练数据的改进。  
+      4) 一套可部署的防线离不开闭环：红队/合成评测用于发现漏洞，线上监控用于发现真实对抗行为，快速更新用于把一次漏洞变成下一次的回归用例。

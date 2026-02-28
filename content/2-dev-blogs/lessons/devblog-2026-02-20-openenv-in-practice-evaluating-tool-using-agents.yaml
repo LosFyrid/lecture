@@ -1,32 +1,151 @@
 id: devblog-2026-02-20-openenv-in-practice-evaluating-tool-using-agents
-title: "OpenEnv in Practice: Evaluating Tool-Using Agents in Real-World Environments"
+title: "真实环境评估：用 OpenEnv 测工具型 agent 的多步可靠性"
 summary: |
-  文章要解决的“研究到生产落差”问题：agent 在受控 demo 里表现好，但在真实系统中要面对多步推理、真实 API、权限、部分可观测与错误恢复，可靠性会显著下降；因此需要能对“真实环境”做标准化评估的框架。
+  OpenEnv 试图解决“研究到生产的落差”：让 agent 在真实、状态化、带权限约束的系统里完成多步工具调用任务，并用统一的 gym 风格 API + MCP 工具接口把评估标准化。Calendar Gym 的结果显示：多步链路、歧义消解与参数/顺序错误是主要瓶颈；结构化错误返回与 lookup/validation 设计是可迁移的改进方向。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2026-02-20
-      - 来源：HuggingFace
-      - URL：https://huggingface.co/blog/openenv-turing
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/HuggingFace/Agents_and_Tooling/2026-02-20__openenv-in-practice-evaluating-tool-using-agents-in-real-world-environments__9b87ffcc2c.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      你可能见过很多“工具型 agent”的 demo：会查资料、会调 API、看起来很聪明。问题是，一旦把它放进真实系统，可靠性往往会显著下降：
+
+      - 工具是真实的（权限、配额、偶发错误都在）
+      - 环境是状态化的（一步错了会影响后续）
+      - 信息是不完全的（看不到别人的全部日程/权限）
+      - 任务需要多步链路（顺序错、参数错都会失败）
+
+      这节课希望回答：
+
+      1) 为什么“在真实环境里评估”比在模拟/脚本里更能暴露 agent 的瓶颈？  
+      2) OpenEnv 用什么最小接口把“真实环境”变成可评测对象？  
+      3) Calendar Gym 暴露的三类主要失败来自哪里（歧义、多步链路、参数/顺序错误）？  
+      4) 工具返回的错误信息应该长什么样，才能让 agent 有机会自我修复而不是盲重试？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：OpenEnv、gym API 与 MCP 工具接口
     body: |
-      - 主题：OpenEnv、real-environment evaluation、gym API、MCP tool interface、calendar benchmark、multi-step reliability、structured errors
-      - 要点：
-        - 文章要解决的“研究到生产落差”问题：agent 在受控 demo 里表现好，但在真实系统中要面对多步推理、真实 API、权限、部分可观测与错误恢复，可靠性会显著下降；因此需要能对“真实环境”做标准化评估的框架。
-        - OpenEnv 的定位：把 agent evaluation 从模拟环境拉到真实系统，提供类似 gym 的 API（`reset/step/action/observation`），并用 MCP tool call 作为统一接口，让“从仿真到生产”的工具交互有一致的 schema 与日志结构。
-        - Calendar Gym（生产级日历环境）为什么是好 benchmark：看似简单的“安排会议”实际上包含时间推理、ACL 权限、多用户、多步骤链式操作、信息不完全（看不到别人日程细节），且每个 session 有状态并可隔离复现。
-        - 用例流程示例：连接 env→`ListToolsAction` 拿到工具清单与 input schema→调用 `calendars_list`→调用 `events_insert` 创建事件；强调“工具名 + JSON schema”是模型可用性的关键。
-        - 主要发现（跨域共性）：
-          - 多步推理是主要瓶颈：越长的 workflow，越容易在步骤串联/顺序上出错。
-          - 任务表述的歧义会显著拉低成功率：当给出明确 calendar identifier 时成功率接近 **90%**，但换成自然语言描述（“我的主日历/那个团队日历”）成功率降到约 **40%**。工程含义：需要在 agent loop 里增加 lookup/validation，而不是完全依赖 LLM 自己消解引用。
-          - “选对工具”不够：失败里超过一半来自**参数不符合 schema**或**调用顺序不对**，即使工具选择正确；环境与错误反馈设计决定了 agent 能否自我修复。
-        - 附录给出三类生产常见错误，并展示“结构化错误 payload”如何帮助 agent 修复：
-          - schema validation error（缺字段/类型不对/嵌套不对）：建议在 prompt 里给一个 canonical 正确示例，并返回结构化缺失字段信息，促使模型修复重试；
-          - permission error（401/403）：返回可操作 remediation（需要哪些 OAuth scopes、是否需要重连/授权），避免模型盲重试；
-          - datetime/format error：强调 RFC3339 + timezone offset（例如 `2026-02-11T09:30:00-05:00`），并给正确示例锚定行为。
-        - 对课程的可迁移结论：评估 tool-using agents 必须在真实约束下测（权限/歧义/多步/状态）；同时 tool schema 与错误返回要结构化，才能让模型真正“自修复”。
+      **OpenEnv 是什么**  
+      原文把 OpenEnv 描述为一个“评估框架”：它强调评估对象应是 *真实系统*，而不是只在仿真里跑的环境。它的目标是把“能不能在生产约束下可靠运行”变成可重复的测量。
+
+      **gym 风格 API（reset / step / action / observation）**  
+      如果你用过强化学习环境（例如 Gymnasium），你会熟悉这种接口：  
+      - `reset()`：初始化一段新的 episode/session（并隔离状态）  
+      - `step(action)`：执行一步动作，返回 observation（成功/失败、工具结果、错误信息、状态变化）
+
+      这种接口的工程意义是：它天然支持多步、状态化的评测，而不是把一次工具调用当作独立样本。
+
+      **MCP tool call 接口（为什么重要）**  
+      OpenEnv 用 MCP（Model Context Protocol）的工具调用风格把环境能力暴露给 agent：工具名 + 输入 schema + 结构化返回。  
+      这让“跨领域环境”在接口层更一致，也更利于记录日志、复现与审计。
+
+      **部分可观测（partial observability）**  
+      日历/权限系统常见的一点是：你并不能看到“完整世界状态”（例如别人日程细节、某些资源权限）。这会迫使 agent 做 lookup、做澄清、做错误恢复，而不是靠一次调用就成功。
+
+  - type: md
+    title: 为什么选日历做 benchmark：Calendar Gym 的“看似简单，实则致命”
+    body: |
+      原文强调：日历系统非常适合做真实环境评估，因为它把多种生产约束叠在一起：
+
+      - **时间推理**：时区、RFC3339 格式、会议时长与冲突判断  
+      - **权限与 ACL**：你可能只能读不能写，或只能写某些日历  
+      - **多用户与信息不完全**：看不到别人全部信息，但仍要安排协作  
+      - **多步工作流**：列日历 → 找到目标 calendarId → 插入/修改事件 →（可能还要改权限/发通知）
+
+      这些约束让评估从“单步 tool call 是否选对”升级成“多步链路能否长期保持正确”。
+
+  - type: md
+    title: OpenEnv 在实践中的最小闭环：先发现工具，再按 schema 调用
+    body: |
+      原文给了一个很典型的交互顺序：
+
+      1) 连接环境并 `reset()`（拿到一个隔离的 session）  
+      2) 执行 `ListToolsAction` 获取工具清单（每个工具含输入 schema）  
+      3) 先 `calendars_list`，再 `events_insert` 创建事件
+
+      这里有一个容易被忽略但很关键的点：**tool name + JSON schema** 不是“文档细节”，而是 agent 可靠性的硬前提。  
+      如果 schema 模糊、错误返回不结构化，模型即使选对工具，也会在参数与顺序上大量失败。
+
+  - type: md
+    title: 评测发现 1：多步链路是主要瓶颈
+    body: |
+      原文的总结很明确：当任务从“像游戏一样的一步动作”变成“需要连续正确执行的工作流”，可靠性会明显下滑。
+
+      这对 benchmark 设计的含义是：如果你的评测只测单步（或只测最终答案），你会系统性低估多步失败的比例；而真实生产里的失败往往正是发生在“第二步、第三步、第四步”。
+
+  - type: md
+    title: 评测发现 2：歧义会把成功率从 ~90% 打到 ~40%
+    body: |
+      Calendar Gym 的一个结果非常“产品化”：同一类任务，只因表述不同，成功率差异巨大。
+
+      - 当任务给出明确的 calendar identifier（例如直接给出 `calendarId`），成功率接近 **90%**。  
+      - 当把同一任务改写成自然语言引用（例如“我的主日历”“那个团队日历”），成功率下降到约 **40%**。
+
+      这条结论对 agent loop 的启发是：歧义不是“让模型更聪明一点”就能解决的，它更像需要系统化机制：
+
+      - 在执行前做 lookup（列出可选项）  
+      - 做 validation（确认引用是否解析到唯一对象）  
+      - 解析失败时向用户澄清，而不是硬猜一个 ID
+
+  - type: md
+    title: 评测发现 3：选对工具不够，参数与顺序错误占了失败的一半以上
+    body: |
+      原文指出：在失败案例中，超过一半并不是“工具选错了”，而是：
+
+      - 参数不符合 schema（缺字段、类型不对、嵌套不对）  
+      - 调用顺序不对（少做了一步前置查询/授权/校验）
+
+      这会把你的优化方向从“tool routing”推向更具体的工程问题：工具接口与错误反馈是否足够结构化，能否支撑自动修复。
+
+  - type: md
+    title: 附录里的三类真实错误：如何让错误返回帮助 agent 自修复
+    body: |
+      原文附录给了三个非常可迁移的“错误返回范式”。它们的共同点是：**错误不是一段字符串，而是一份可供下一步推理使用的结构化 observation**。
+
+      1) **schema validation error（参数校验失败）**  
+      典型字段：`error_type`、`tool_name`、缺失字段列表、类型不匹配列表。  
+      工程含义：你可以把“修复所需信息”直接塞进错误里，让 agent 有机会补齐再试，而不是盲重试。
+
+      2) **permission / authorization error（401/403 权限失败）**  
+      典型字段：`http_status`、原因解释、`remediation` 建议列表（缺哪些 OAuth scope、是否需要重连、用户是否无写权限）。  
+      工程含义：把“下一步怎么做”写清楚，agent 才能引导用户授权/切换目标，而不是陷入重复失败。
+
+      3) **datetime / format error（时间格式失败）**  
+      典型字段：收到的字符串、期望格式（例如 RFC3339，带时区 offset）。  
+      工程含义：时间是工具调用里最常见的脆弱点之一；给一个 canonical 示例往往比长篇解释更有效。
+
+      你可以把这三类错误当作一条设计原则：**让错误返回携带“修复动作的最小充分信息”**。
+
+  - type: md
+    title: 练习：把一个真实 API 包成“可评测环境”
+    body: |
+      选一个你熟悉的真实 API（邮件、日历、工单、仓库、数据库都可以），写一个 OpenEnv 风格的最小环境设计：
+
+      1) 你的 `reset()` 会隔离哪些状态？（避免跨样本污染）  
+      2) 你会暴露哪些工具？每个工具的 JSON schema 是什么？  
+      3) 你会怎么设计至少 2 类结构化错误返回？（validation + permission 是最常见的起点）  
+      4) 写 5 条评测任务：至少包含 1 条多步链路、1 条歧义引用、1 条权限失败恢复。
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-02-20
+      - 来源：HuggingFace（合作：Meta + Hugging Face，Calendar Gym 由 Turing 贡献）
+      - 建议：阅读时可以先抓住 OpenEnv 的接口形态（gym API + MCP 工具接口），再重点看 Calendar Gym 的三条发现（多步瓶颈、歧义降成功率、参数/顺序错误占主导），最后把附录的结构化错误 payload 当作“工具接口设计模板”。
+
+  - type: url
+    title: "原文：OpenEnv in Practice: Evaluating Tool-Using Agents in Real-World Environments"
+    url: https://huggingface.co/blog/openenv-turing
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      OpenEnv、MCP 以及具体环境（例如 Calendar Gym）的实现细节可能会快速演进；但原文暴露的失败类型（歧义、参数校验、权限错误、多步链路）通常是“真实系统”里长期存在的。迁移时更建议复用：用状态化环境做评测、用结构化错误支撑自修复、以及把 lookup/validation 显式写进 agent loop。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) 真实环境评估更能暴露瓶颈，是因为它把权限、偶发错误、部分可观测与状态链路一起引入；这些因素在模拟 demo 里往往被简化掉。  
+      2) OpenEnv 用 gym API 把“多步、状态化”标准化，用 MCP 工具接口把“工具清单 + schema + 结构化返回”标准化，从而让跨环境的评测更一致。  
+      3) Calendar Gym 的三条主要失败分别指向三类系统改进：歧义需要 lookup/validation；多步链路需要更好的 planning/恢复；参数/顺序错误需要更强的 schema 约束与结构化错误返回。  
+      4) 错误返回之所以关键，是因为它决定了 agent 是否有机会“看懂失败并修复”：把 missing fields、期望类型、权限 remediation、时间格式示例写进 error payload，会比让模型从一段字符串里猜要稳得多。
+

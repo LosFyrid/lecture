@@ -1,34 +1,143 @@
 id: devblog-2026-01-30-practical-security-guidance-for-sandboxing-agent
-title: "Practical Security Guidance for Sandboxing Agentic Workflows and Managing Execution Risk | NVIDIA Technical Blog"
+title: "执行风险与 sandbox：间接注入威胁模型与 mandatory 控制面"
 summary: |
-  威胁模型：coding agents/“computer use agents” 通过终端运行工具，常拿到与用户同等权限，因此攻击面大。主要威胁是 **indirect prompt injection**：恶意指令藏在被 LLM 读取的内容里（恶意 repo/PR、git history、`.cursorrules`、CLAUDE/AGENT.md、恶意 MCP 响应等），诱导 agent 以用户权限做危险动作（外泄、持久化、RCE 等）。
+  这篇 NVIDIA AI Red Team 文章把“coding agents 的安全”讲成一个非常可落地的威胁模型：agent 在命令行运行工具，往往拥有与用户同等权限，因此最大的风险不是模型胡说，而是 **indirect prompt injection**——攻击者把恶意指令埋在 agent 会读到的内容里（恶意仓库/PR、git history、`.cursorrules`、CLAUDE/AGENT.md、恶意 MCP 响应等），诱导 agent 用用户权限执行外泄/持久化/RCE。原文给出一组“mandatory + recommended”的沙箱控制面，并强调必须做 OS-level 强制隔离（应用层 allowlist 容易被子进程/间接路径绕过），同时要警惕频繁审批带来的 habituation（用户习惯性点允许）。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2026-01-30
-      - 来源：NVIDIA
-      - URL：https://developer.nvidia.com/blog/practical-security-guidance-for-sandboxing-agentic-workflows-and-managing-execution-risk
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/NVIDIA/Safety_and_Security/2026-01-30__practical-security-guidance-for-sandboxing-agentic-workflows-and-managing-execut__36281eb7d3.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      当一个 coding agent 能在你的机器上读写文件、跑命令、装依赖，它就不再只是“聊天机器人”，而是一个具备执行能力的系统组件。
+
+      原文的核心提醒是：这类 agent 的攻击面常常被低估——因为它的权限与用户相当，而它会自动读取大量外部输入（仓库内容、PR、配置文件、工具输出）。
+
+      读完本课后，你应该能回答：
+
+      1) 什么是 indirect prompt injection？它与“直接 prompt 注入”相比，为什么更难防、更贴近真实威胁？  
+      2) 为什么仅靠人工审批（approve/deny）不足以做主要防线？“habituation（习惯性批准）”风险是什么？  
+      3) NVIDIA Red Team 认为哪些控制是 mandatory？它们各自阻断哪类攻击链？  
+      4) 为什么必须 OS-level 强制隔离？应用层拦截/allowlist 在 agent 时代哪里会失效？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：把威胁与控制翻译成工程对象
     body: |
-      - 主题：indirect prompt injection、OS-level sandboxing、network egress control、workspace boundary、config write protection、secret injection、lifecycle management
-      - 要点：
-        - 威胁模型：coding agents/“computer use agents” 通过终端运行工具，常拿到与用户同等权限，因此攻击面大。主要威胁是 **indirect prompt injection**：恶意指令藏在被 LLM 读取的内容里（恶意 repo/PR、git history、`.cursorrules`、CLAUDE/AGENT.md、恶意 MCP 响应等），诱导 agent 以用户权限做危险动作（外泄、持久化、RCE 等）。
-        - 仅靠“人工审批”有可用性风险：频繁审批造成摩擦→用户习惯性点“允许”，反而降低安全；需要在自动化与人类监督之间找到平衡，并做系统性隔离。
-        - NVIDIA AI Red Team 给出的**必选（mandatory）控制**（用来挡住最严重的注入攻击）：
-          - Network egress 控制：禁止任意外连，阻断数据外泄/远程 shell；
-          - 禁止写 workspace 外部文件：避免持久化、逃逸与多类 RCE 技术；
-          - 禁止写配置文件（无论位置）：防止篡改 hooks/skills/本地 MCP 配置等“在沙箱外触发的执行入口”。
-        - 进一步的**推荐控制**（降低枚举与探索、限制 hooks/MCP/内核利用等）：
-          - 禁止读 workspace 外文件（或做分级 allowlist/denylist）；
-          - 尽量把整个 IDE 以及其衍生执行（hooks、MCP 启动脚本、skills、tool calls）都置于沙箱内，必要时用不同 OS user 隔离；
-          - 用虚拟化隔离沙箱内核与宿主机内核（microVM/Kata/full VM）；
-          - 对“会违反默认 deny 隔离策略”的动作，**每次都要单独审批**（allow-once/run-many 不够；审批不可缓存持久化）；
-          - Secret injection：不要把宿主机的环境变量/凭据全量继承给沙箱，改为按任务最小注入（最好短期 token、通过 broker 发放）；
-          - 生命周期管理：防止沙箱长期累积依赖、缓存凭据、知识产权等；要么用一次性/短命沙箱，要么定期重建到干净状态。
-        - 为什么要 OS-level 强制而不是应用层拦截：agent 工作流天然需要任意代码执行；应用层可以拦“某次 tool 调用”，但一旦进入子进程就失去可见性与控制；攻击者常用“间接调用”绕过 allowlist。OS-level（例如 macOS Seatbelt）能覆盖沙箱内所有进程与衍生进程，避免通过间接路径访问高风险能力。
-        - 可迁移的总原则：把“默认 deny”做成系统地基；把审批当作例外且不可缓存；把 secrets 与生命周期管理当作一等公民；并持续验证隔离策略随 agent 能力与集成扩展而调整。
+      **Indirect prompt injection（间接提示注入）**  
+      攻击者不是直接在聊天里对模型说“去做坏事”，而是把恶意指令埋进 agent 会读取的内容里：代码仓库、PR 描述、git commit message、项目规则文件（如 `.cursorrules`、CLAUDE/AGENT.md）、甚至恶意 MCP 工具响应。  
+      agent 读到后把它当作“可执行指令”，就可能以用户权限执行危险动作。
+
+      **Workspace boundary（工作区边界）**  
+      你允许 agent 操作的那一小块文件系统范围（例如当前仓库目录）。边界之外的读/写往往意味着：枚举宿主机、读到 secrets、或植入持久化。
+
+      **Network egress（网络外连）**  
+      agent 或其子进程对外发起网络连接的能力。对攻击者来说，这是最直接的外泄通道（把代码/密钥发出去）或远程控制通道（建立 remote shell）。
+
+      **OS-level sandbox（操作系统级沙箱）**  
+      在操作系统层强制限制进程能力（文件/网络/系统调用），并覆盖所有子进程。原文强调：这类强制比应用层拦截更不容易被绕过。
+
+      **Approval（审批）**  
+      用户对某次高风险动作的确认。原文强调“审批不可缓存、不可持久化”，否则一次合法批准会变成后续恶意利用的通道。
+
+  - type: md
+    title: 威胁模型：为什么 coding agents 特别容易中 indirect injection
+    body: |
+      原文指出，coding agents 的危险之处在于“自动化 + 权限 + 大量不可信输入”的组合：
+
+      - 自动化：agent 会自己决定读哪些文件、跑哪些命令、调用哪些工具。  
+      - 权限：很多 agent 默认继承用户的权限与环境（包括网络权限与环境变量里的凭据）。  
+      - 不可信输入：仓库与工具输出并不可信；攻击者可以通过 PR、依赖、配置文件等注入指令。
+
+      在这种设置下，攻击者不需要“攻破模型”，只需要让模型相信某段文本是高优先级指令，就可能触发越权行动（外泄、写配置、植入后门、执行脚本）。
+
+  - type: md
+    title: 为什么只靠人工审批不够：摩擦与 habituation
+    body: |
+      原文承认：手动审批是最常见的风险管理方式，但它有一个现实副作用：持续打断会带来摩擦。
+
+      当审批次数过多时，用户容易形成 habituation：不再认真阅读，而是习惯性点击“允许”。这会让审批从防线退化成形式。
+
+      因此原文强调：需要在“自动化”与“人类监督”之间找平衡，而真正能兜底的通常是强制隔离（default deny + mandatory controls），而不是把所有风险都押在审批按钮上。
+
+  - type: md
+    title: Mandatory controls（原文认为必须做的三条硬防线）
+    body: |
+      原文给出三条 mandatory 控制，并明确它们对 indirect injection 的阻断价值：
+
+      1) **Network egress controls（限制外连）**  
+         阻止 agent 任意连接外部站点，可以显著降低数据外泄与远程 shell 的风险。
+
+      2) **Block file writes outside of the workspace（禁止写工作区外）**  
+         阻断一大类持久化机制、sandbox escape 与 RCE 技术路径：很多攻击的关键是把东西写到工作区之外（例如用户目录、系统路径、启动脚本）。
+
+      3) **Block writes to configuration files, no matter where they are located（禁止写配置文件）**  
+         配置文件往往是“在沙箱外触发执行”的入口：hooks、skills、本地 MCP 配置等可能在不同上下文执行。  
+         一旦 agent 能改配置，攻击者就能把一次诱导变成长期后门。
+
+      你可以把这三条理解成：切断外泄通道（网络）、切断持久化面（工作区外写）、切断“未来执行入口”（配置写）。
+
+  - type: md
+    title: 为什么要 OS-level 强制：应用层拦截会被“子进程与间接路径”绕过
+    body: |
+      原文给出一个非常关键的论证：agentic 工具（尤其是 coding）本质上要做“任意代码执行”——写代码、跑测试、执行脚本。
+
+      这会让应用层控制（例如拦 tool call 参数、做 allowlist）变得不可靠：
+
+      - 一旦执行进入子进程，应用层往往失去可见性与控制。  
+      - 攻击者常用“indirection（间接调用）”绕过 allowlist：通过一个看似安全的工具间接触发受限行为。
+
+      OS-level 控制（原文举例 macOS Seatbelt）在更底层约束所有沙箱内进程与衍生进程：无论它们从哪里启动，都不能触达被禁止的系统能力。
+
+      对 agent-builder 来说，这段话的结论是：如果你真的允许 agent 执行代码，你需要把关键隔离放到 OS/虚拟化层，而不是只在应用层“做几个正则拦截”。
+
+  - type: md
+    title: Recommended controls（进一步降低攻击面）
+    body: |
+      原文还列出一组 recommended 控制，用来降低枚举、探索、kernel 级风险与 secrets 暴露：
+
+      - **Prevent reads outside workspace（限制读工作区外）**：避免攻击者枚举宿主机、读取 IP、读取 secrets。原文建议用分级策略：企业级 denylist（高敏路径）+ 严格 allowlist（初始化阶段必要文件）+ 其余默认 deny/需审批。  
+      - **Sandbox the entire IDE + spawned functions**：不仅沙箱工具调用，还要覆盖 hooks、MCP 启动脚本、skills 等衍生执行；可能的话用独立 OS user 隔离。  
+      - **Virtualization（虚拟化隔离内核）**：microVM、Kata、全虚拟机等，把沙箱内核与宿主机内核隔离，降低 kernel exploit 风险。  
+      - **Approval every time（每次都要审批）**：对违反 default-deny 的动作（例如某次网络连接）每次都要重新审批；allow-once/run-many 不足够。企业 denylist 不应被审批覆盖。  
+      - **Secret injection（按需注入 secrets）**：不要让沙箱继承宿主机全部环境变量/凭据；用最小权限、短期 token、甚至 credential broker 按需发放。  
+      - **Lifecycle management（生命周期管理）**：避免沙箱长期累积依赖、缓存凭据、代码与 IP；可用短命沙箱或定期重建清洁状态。
+
+  - type: md
+    title: 练习：为你的 coding agent 写一份“默认拒绝”的沙箱策略
+    body: |
+      写一份你自己的 sandbox policy（1 页即可），至少回答：
+
+      1) workspace 边界是什么？哪些路径明确禁止读/写？  
+      2) network egress 怎么控？允许哪些 known-good 目的地？其余默认 deny？  
+      3) 配置文件写保护怎么做？哪些文件属于“无论在哪都禁止写”？  
+      4) secrets 怎么注入？哪些凭据绝不进入沙箱？哪些用短期 token/按需 broker？  
+      5) 审批策略：哪些动作必须每次审批？审批结果是否会被缓存（原文建议不要）？  
+      6) 生命周期：沙箱是一次性的还是可复用的？多久重建一次？
+
+      然后设计 3 个“红队用例”去验证：  
+      - 恶意仓库里写入“修改 ~/.zshrc”之类的指令时是否能被阻断？  
+      - 工具输出里诱导外连是否被阻断？  
+      - 尝试写入 hooks/MCP 配置是否被阻断？
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-01-30
+      - 来源：NVIDIA
+      - 建议：阅读原文时建议重点核对三块：1) indirect prompt injection 的具体载体清单（repo/PR/git history/规则文件/MCP 响应）；2) mandatory controls 三条硬防线及其阻断的攻击类别；3) 为什么必须 OS-level 强制（子进程+间接调用绕过应用层）以及 approvals 不可缓存、secrets 需按需注入、沙箱需生命周期管理的理由。
+
+  - type: url
+    title: "原文：Practical Security Guidance for Sandboxing Agentic Workflows and Managing Execution Risk | NVIDIA Technical Blog"
+    url: https://developer.nvidia.com/blog/practical-security-guidance-for-sandboxing-agentic-workflows-and-managing-execution-risk
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      具体沙箱实现手段（某个 OS 的 sandbox API、某种容器/虚拟化方案）会随平台演进；组织的风险偏好与默认配置也会变化。
+      更可迁移的是控制面框架：围绕 indirect prompt injection，先落 mandatory 的 default-deny 隔离（egress、工作区边界、配置写保护），再用 recommended 控制补齐 secrets 与生命周期，最后用 targeted red-team 用例持续验证。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) indirect prompt injection 的难点在于“恶意指令来自你会读取的内容”，而 coding agent 又具备执行权限；因此风险更像系统安全而不是内容安全。  
+      2) 频繁审批会带来 habituation，使审批从防线退化成形式；mandatory controls 的 default-deny 隔离更适合作为底座。  
+      3) 三条 mandatory 控制分别切断：外泄通道（egress）、持久化面（工作区外写）、未来执行入口（配置写）。  
+      4) OS-level 强制隔离的必要性来自“子进程与间接调用绕过应用层可见性”的现实；当 agent 需要任意代码执行时，应用层 allowlist 很难覆盖所有路径。

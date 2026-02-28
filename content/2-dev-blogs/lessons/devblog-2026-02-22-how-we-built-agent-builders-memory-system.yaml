@@ -1,37 +1,152 @@
 id: devblog-2026-02-22-how-we-built-agent-builders-memory-system
-title: "How we built Agent Builder’s memory system"
+title: "Files-as-Memory：把 agent 的记忆做成可移植的工程工件"
 summary: |
-  为什么 Agent Builder（任务型、非通用 agent）必须优先做 memory：它不是“什么都干的 ChatGPT”，而是同一类工作反复执行；跨会话复用率高，如果没有 memory，用户会不断重复同样的偏好/规则，体验会很差。
+  一个可迁移的记忆系统思路：把记忆表示成一组可读写文件（AGENTS.md / skills / tools.json 等），让模型用“像人一样编辑文件”的方式维护长期偏好与知识；再通过 schema 校验与 human-in-the-loop 把记忆编辑变成可治理的工程过程。适用于“重复做同一类任务”的专用 agent。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2026-02-22
-      - 来源：LangChain
-      - URL：https://blog.langchain.com/how-we-built-agent-builders-memory-system
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LangChain/Agents_and_Tooling/2026-02-22__how-we-built-agent-builder-s-memory-system__78c62a28bf.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      “给 agent 加记忆”很容易被理解成：接一个向量库、做个 RAG。  
+      但在真实产品里，记忆更像一个工程问题：**什么应该跨会话保留？以什么形式保留？谁来改？怎么防止被错误/注入污染？**
+
+      这节课用 LangSmith Agent Builder 的实践来回答：
+
+      1) 为什么一个面向固定工作流的 agent，会比通用聊天更需要 memory？  
+      2) 把 memory 做成“文件系统”而不是“专用记忆 API”，工程上解决了什么问题？  
+      3) 如果 agent 自己会改记忆，如何避免它把格式写坏、把噪声越写越多、甚至被 prompt injection 利用？  
+      4) 一套好的 memory 机制，除了“更懂你”，还应该带来哪些工程收益（可移植、可审计、可版本化）？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：三类记忆 + 两个治理动作
     body: |
-      - 主题：agent memory、files-as-memory、AGENTS.md、skills、tools.json、virtual filesystem、prompting/validation、human approval、compaction
-      - 要点：
-        - 为什么 Agent Builder（任务型、非通用 agent）必须优先做 memory：它不是“什么都干的 ChatGPT”，而是同一类工作反复执行；跨会话复用率高，如果没有 memory，用户会不断重复同样的偏好/规则，体验会很差。
-        - 采用 COALA 的三类记忆定义来对齐设计：procedural（行为规则）、semantic（事实/知识）、episodic（历史轨迹）。他们在初版主要覆盖前两类，episodic 计划后补。
-        - 核心实现选择：把 memory 表示成**一组文件**，因为 LLM 很擅长“像人一样”浏览与编辑文件系统；这样 agent 不需要特殊 memory API，只要给它文件读写能力即可自我更新。
-        - 尽量用标准化约定提高可迁移性：
-          - `AGENTS.md`：核心指令（procedural memory 的主载体）；
-          - skills：特定任务的专门说明（semantic/procedural 的细分）；
-          - `subagents/`：采用类似 Claude Code 的子 agent 格式；
-          - `tools.json`：用于 MCP 接入的工具清单（刻意不是 `mcp.json`），因为他们希望只暴露 MCP server 的**工具子集**，避免 context overflow。
-        - 基础设施层面并非真的用 OS 文件系统：后端把这些“文件”存到 Postgres，并对 agent 暴露为“虚拟文件系统”（好处是 infra 更易维护/高效，且存储层可插拔到 S3/MySQL 等）。
-        - Agent Builder 能做到 no-code 的原因：底层使用通用 harness（Deep Agents）抽象掉大量复杂 context 工程（例如对话总结、tool 结果卸载、计划/待办追踪），用户只需要用相对简单的配置与自然语言反馈来迭代。
-        - 一个很具体的“memory 自增”例子：用户最开始只有一句 `Summarize meeting notes.`；第一周纠正“用 bullet points”；第二周再纠正“把 action items 单列”；随着使用不断累积偏好与边界条件，`AGENTS.md` 逐步长成结构化的“总结偏好规范”。作者强调：规范不是一开始写完，而是通过纠错迭代“长出来”的。
-        - 关键工程教训：
-          - 最难的是 prompting：什么时候该记、什么时候不该记、该写到 AGENTS.md 还是 skill、skill 文件格式等，主要靠 prompt 迭代解决（甚至需要专人全职做 prompting）。
-          - 必须做**文件类型校验**：`tools.json`、skills frontmatter 等都有 schema；若 agent 写出无效文件，应在提交前验证并把错误反馈回 LLM 让其修复。
-          - agent 擅长“追加具体条目”，但不擅长“抽象与压缩（compact）”：会把很多具体例外都记下来而不总结成规则；因此需要显式提示它做归纳/压缩。
-          - memory 更新默认 human-in-the-loop：所有 memory 编辑需人类确认，以降低 prompt injection 攻击面；提供可关闭的 “yolo mode” 作为权衡选项。
-        - 这套 files-as-memory 的副作用是收益：更像“可移植的 agent 包”（markdown/json），不依赖 DSL，方便迁移到其他 harness（Deep Agents CLI、Claude Code、OpenCode 等）。
-        - 未来方向：把历史对话作为文件实现 episodic memory；后台定时反思/归纳（cron）；显式 `/remember` 命令；对 memory 做语义检索；引入 user/org 级别的层次化 memory。
+      原文借用了 COALA 论文对 agent memory 的三分法：
+
+      **Procedural（程序性记忆）**  
+      决定 agent “怎么做事”的规则：偏好、格式约定、行为边界、流程步骤。
+
+      **Semantic（语义记忆）**  
+      关于世界/组织的事实与知识：例如某个团队的 on-call 规则、某个系统的登录方式、常见故障排查路径。
+
+      **Episodic（情景/情节记忆）**  
+      过去行为序列：历史对话与行动轨迹本身（可以用于复盘、反思与泛化）。
+
+      在工程落地上，原文反复提到两个“治理动作”，它们往往比“存哪里”更关键：
+
+      - **Validation（结构校验）**：哪些文件必须符合 schema（例如 tools.json、skills frontmatter）？写坏了要怎么反馈给模型修复？  
+      - **Compaction（压缩/泛化）**：什么时候要把一堆具体例子压缩成一般规则？否则记忆会越写越长、越写越碎。
+
+  - type: md
+    title: 背景：Agent Builder 是什么，为什么优先做 memory
+    body: |
+      原文先解释了他们的产品定位：LangSmith Agent Builder 是一个 no-code agent builder，面向“技术比较轻”的用户（citizen developers），让他们为某个固定工作流定制一个专用 agent（例如邮件助理、文档助理等）。
+
+      关键差异在于：它不是通用聊天，而是“同一类任务反复执行”。  
+      因此一次会话里学到的偏好与规则，在下一次会话里很可能仍然适用；如果没有 memory，用户就需要反复重复同样的纠正，体验会很差。
+
+  - type: md
+    title: 设计选择：把 memory 表示成一组文件（而不是一个神秘的记忆接口）
+    body: |
+      原文的核心实现选择是：**把 memory 表示成一组文件**。
+
+      这背后的工程直觉是：LLM 对“浏览与编辑文件系统”非常擅长；如果把记忆放在文件里，你就不需要发明一个复杂的“记忆 CRUD API”，只要给 agent 文件读写能力，它就能在熟悉的媒介里维护自己的记忆。
+
+      他们尽量使用行业标准与可复用约定：
+
+      - `AGENTS.md`：核心指令集（偏 procedural）。  
+      - `skills`：针对具体任务的专门说明（procedural/semantic 的细分）。  
+      - `subagents/`：子 agent 的格式（他们参考了 Claude Code 的 sub-agent 形式）。  
+      - `tools.json`：MCP 工具清单（刻意不是标准的 `mcp.json`），因为他们希望只暴露 MCP server 的**工具子集**，以降低 context overflow 风险。
+
+      存储层面，他们并不真的用 OS 文件系统：后端把这些“文件”存到 Postgres，再对 agent 暴露成“虚拟文件系统（virtual filesystem）”。这样一方面让 LLM 继续享受“像文件系统一样操作”的交互形式，另一方面让基础设施更易维护、可插拔（原文提到也可以换成 S3、MySQL 等）。
+
+      另一个细节是：除了这些规范文件，用户与 agent 也可以在 memory 文件夹里写任意其他文件（知识、草稿、说明），并且允许 agent 在执行过程中随时编辑（原文称 “in the hot path”）。
+
+  - type: md
+    title: 记忆如何“长出来”：一个具体例子（从一句话到一套规范）
+    body: |
+      原文给了一个非常适合作为“心智模型”的例子：会议纪要总结 agent。
+
+      - **Start**：一开始 `AGENTS.md` 只有一句：`Summarize meeting notes.`  
+      - **Week 1**：agent 输出段落，你反馈：“改成 bullet points”。agent 把这条偏好写进 `AGENTS.md`。  
+      - **Week 2**：你再反馈：“把 action items 单独放在末尾”。agent 继续更新 `AGENTS.md`。  
+      - **Month 3**：随着边界条件不断出现，`AGENTS.md` 长成一份更结构化的“总结偏好规范”。
+
+      这个例子抓住了一个对产品很重要的点：记忆不是一开始就写完的说明书，它更像在真实使用中通过纠错迭代“长出来”的工件。  
+      对工程而言，这意味着：你需要把“更新记忆”当作系统的一等路径来设计（写入时机、写入格式、校验与审批），而不是把它当作一个锦上添花的特性。
+
+  - type: md
+    title: 落地中的坑：prompting、校验、压缩与安全
+    body: |
+      原文的 learnings 部分很“工程味”，可以直接当作实现 checklist 的来源。
+
+      **1) 最难的是 prompting（而不是存储）**  
+      他们遇到的大量问题最终都靠 prompt 迭代解决：什么时候该记、什么时候不该记、应该写到 AGENTS.md 还是 skills、skills 的文件格式等。原文甚至提到有成员全职做 memory prompting。
+
+      **2) 必须校验文件类型（否则会把系统写坏）**  
+      一些文件必须符合 schema：例如 `tools.json` 需要是合法的 MCP 服务器/工具配置；skills 需要正确的 frontmatter。  
+      他们为此加了显式校验：如果校验失败，不提交文件，而是把错误反馈回 LLM 让它修复。
+
+      **3) agent 很会“加”，但不太会“压缩”**  
+      他们观察到 agent 会把具体例子越写越多，却不擅长把它们泛化成简洁规则。原文的例子是：邮件助理会列出“要忽略冷邮件的具体厂商名单”，而不是总结成“忽略所有 cold outreach”。
+
+      **4) 显式提示仍然有用**  
+      即使 agent 能在 hot path 里自动写记忆，用户有时仍然需要明确提示它“反思并补记”“把记忆压缩泛化”。原文后面也把 `/remember` 当作未来方向之一。
+
+      **5) Human-in-the-loop 是默认安全阀**  
+      他们把所有记忆编辑默认设为 human approval（human-in-the-loop），主要目的是降低 prompt injection 带来的风险；同时也提供可关闭的 “yolo mode”，用于对安全顾虑较低的场景。
+
+  - type: md
+    title: 这套 memory 机制带来的额外收益：no-code 与可移植性
+    body: |
+      原文强调：把 agent 的“配置 + 记忆”做成 markdown/json 文件，还有一些常被低估的收益：
+
+      - **no-code 更可扩展**：比起学习一个专有 DSL，用文件表达规则与工具更接近用户熟悉的媒介；复杂度上来也更不容易崩。  
+      - **迭代更自然**：你不必每次都手工改配置；你给反馈，agent 把反馈“写进记忆”，下次自动生效。  
+      - **portable agents**：文件是可移植的。只要其他 harness 认可同样的文件约定，你就能把 agent 迁移到别的运行时（原文提到 Deep Agents CLI，甚至其他 harness）。
+
+  - type: md
+    title: 未来方向：补齐 episodic、做后台反思、做层级化 memory
+    body: |
+      原文列出了一些他们还没来得及做、但很自然的演进方向：
+
+      - **Episodic memory**：把历史对话/行为作为文件暴露给 agent（让它能复盘与引用）。  
+      - **后台反思进程**：用定时任务（cron）在后台总结多次对话，补上 hot path 漏记的内容，并做泛化。  
+      - **`/remember` 命令**：让用户显式触发“回顾本次会话并更新记忆”。  
+      - **Semantic search**：在 glob/grep 之外提供语义检索，解决“记忆越来越多时的发现问题”。  
+      - **不同层级的 memory**：从“仅 agent 级”扩展到 user/org 级目录，并提示 agent 如何正确读写。
+
+  - type: md
+    title: 练习：为你的 agent 设计一套 file-based memory（含治理规则）
+    body: |
+      以你自己要做的一个专用 agent 为例（比如论文润色、代码 review、客服工单、日历助理），写一个最小的 memory 目录与治理方案：
+
+      1) 目录里至少包含：`AGENTS.md`、一个 skills 文件、一个 tools 清单（可以是 tools.json）。  
+      2) 写出两条“写入规则”：什么情况下写 AGENTS.md，什么情况下写 skills。  
+      3) 写出一条“校验规则”：哪些文件需要 schema validation？失败时你要把什么错误信息喂回模型？  
+      4) 写出一条“安全阀规则”：默认 human approval 还是默认自动写？如果要做 yolo mode，你会限制哪些危险写入？
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-02-22
+      - 来源：LangChain
+      - 建议：阅读时可以重点抓三件事：1) 为什么任务型 agent 更需要 memory（复用率高）；2) “memory=files” 这条设计如何同时解决可读写与可移植；3) learnings 里关于 prompting/校验/压缩/HITL 的坑，几乎都是你自己实现时也会踩到的。
+
+  - type: url
+    title: "原文：How we built Agent Builder’s memory system"
+    url: https://blog.langchain.com/how-we-built-agent-builders-memory-system
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      `AGENTS.md`、skills、MCP 等约定仍在快速演进；具体文件格式与工具生态可能会变化。但“把记忆做成可审计的工件（files）、用校验与审批治理写入、用 compaction 控制增长”这组工程原则通常具有较强可迁移性。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) 任务型 agent 更需要 memory，是因为它重复做同一类事，“上次学到的规则/偏好”在下次很可能仍然适用；没有 memory 就会迫使用户反复纠错。  
+      2) files-as-memory 的核心优势是：LLM 擅长读写文件，你不必发明专用记忆接口；同时文件天然可版本化、可审计、可迁移。  
+      3) 让 agent 自己改记忆必须配治理：schema validation 防止写坏、compaction 防止越写越碎、HITL 防 prompt injection；必要时再提供可切换的自动模式。  
+      4) 这套机制的价值不止“更懂你”：它还把 agent 的可移植性与可维护性提升到工程层面，让 memory 成为可以被 review 与复用的长期资产。
+

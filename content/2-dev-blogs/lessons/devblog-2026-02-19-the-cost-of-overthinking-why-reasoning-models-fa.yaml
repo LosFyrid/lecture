@@ -1,36 +1,168 @@
 id: devblog-2026-02-19-the-cost-of-overthinking-why-reasoning-models-fa
-title: "The Cost of Overthinking: Why Reasoning Models Fail at Document Parsing"
+title: "过度推理的代价：为什么文档解析里 reasoning tokens 不等于更好"
 summary: |
-  研究问题：推理模型在数学/代码任务上常因“多想”更强，但对文档 OCR/解析（表格、公式、阅读顺序）是否同样成立？作者用 OmniDocBench 子集做实验，结论是：**更多 thinking 并没有带来更高解析质量，却显著增加成本与延迟**。
+  用一次对照实验说明“思考更久”并不总能带来更高质量：在文档 OCR/解析任务上，提高推理强度会显著推高延迟与成本，却未必提升结构化还原的准确度，甚至会诱发“按理想结构填空”的偏离。更稳的路线往往是 pipeline：先确定性读像素，再让 LLM 在已读出的文本上做结构与校验。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2026-02-19
-      - 来源：LlamaIndex
-      - URL：https://www.llamaindex.ai/blog/the-cost-of-overthinking-why-reasoning-models-fail-at-document-parsing
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LlamaIndex/Models_and_Techniques/2026-02-19__the-cost-of-overthinking-why-reasoning-models-fail-at-document-parsing__faf0b79394.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      很多“推理模型/高思考档位”在数学、代码等任务上常常更强，于是一个自然的直觉是：文档解析是不是也该让模型多想一点？
+
+      但文档解析（OCR + 表格/公式/阅读顺序）有一个特殊性：你要的往往是**忠实转写**与**结构还原**，而不是“把内容解释得更通顺”。
+
+      读完本课，你应该能回答：
+
+      1) 为什么在文档 parsing 里，“理解得更像人”反而可能带来错误？  
+      2) reasoning tokens 提升带来的主要收益与主要副作用分别是什么？  
+      3) 如果更多 thinking 不提升质量，你可以把 reasoning 放到 pipeline 的哪个位置才更划算？  
+      4) 面对表格、公式、竖排小字等布局难点，你如何设计更稳的评测与失败分析？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：Parsing 不是 Understanding
     body: |
-      - 主题：reasoning tokens、OCR/document parsing、layout fidelity、cost/latency tradeoff、pipeline-based parsing
-      - 要点：
-        - 研究问题：推理模型在数学/代码任务上常因“多想”更强，但对文档 OCR/解析（表格、公式、阅读顺序）是否同样成立？作者用 OmniDocBench 子集做实验，结论是：**更多 thinking 并没有带来更高解析质量，却显著增加成本与延迟**。
-        - 实验设置：随机选 10 个中等难度 + 30 个高难度文档（复杂表格、多栏布局、混合方向文字、公式、低扫描质量等），用 GPT-5.2 的 4 个推理档位（Zero/Low/High/xHigh）跑解析，并用 LlamaParse Agentic 作为 baseline。
-        - 核心结果（Quality/Time/Cost）：
-          - Zero：质量 **0.795**，**47.89s**，**$0.029**
-          - Low：**0.784**，**45.11s**，**$0.031**
-          - High：**0.792**，**96.23s**，**$0.078**
-          - xHigh：**0.790**，**241.70s**，**$0.246**
-          - LlamaParse Agentic：质量 **0.821**，**18.71s**，**$0.013**
-        - 现象 1：高推理会“结构性偏离原文”。示例中 xHigh 用了约 **13,700** reasoning tokens 处理一页表格，却把字符 “4-CNY” 幻觉成 “4-CYN”，并且会把原文留白的表格单元“补齐”（语义上可能说得通，但对 benchmark 的结构忠实度/精确匹配是负分）。
-        - 现象 2：高推理更倾向“过度解释布局”，把一个连续表格拆成多个表（看到分区标题就推断“这里应该是边界”），从“所见即所得的转写”变成“按它认为应该怎样的结构重构”。
-        - 现象 3：你无法用 reasoning tokens 弥补 vision encoder 看不清的问题。示例显示遇到竖排小字/模糊区域时，模型直接跳过；即使 `detail=auto` 会触发更高分辨率 tile crops，仍可能失败，说明瓶颈发生在推理前的图像编码阶段。
-        - reasoning 仍有用，但更适合“理解”而不是“解析”：例如 xHigh 能把 logo/icon 描述出来（解释“这是什么”），而 base 模式只会把它当空白；对 OCR 任务，过度理解反而会引入填空/幻觉。
-        - 作者给出的工程路径：用 pipeline 分解问题，而不是堆 thinking：
-          - 先做确定性的 OCR/像素级读取；
-          - 再做布局/结构分析确定表格边界；
-          - 最后让 LLM 在“已被读出来的文本”上做结构化与校验；
-          - 在局部环节用 agentic loop 做对齐与验证，把推理用在“需要推理的地方”，而不是用推理去猜像素。
+      **document parsing（文档解析）**  
+      这里指的是：把页面里的内容（尤其是表格、公式、多栏阅读顺序）转成结构化文本/结构化数据。它更像“高保真扫描”，而不是“读懂并改写”。
+
+      **reasoning tokens / thinking（推理强度）**  
+      原文用“Zero/Low/High/xHigh thinking”来控制模型投入多少推理。直觉上它会让模型花更多计算在难样本上；但它也会拉高延迟与成本，并改变模型的行为倾向（例如更愿意做推断与补全）。
+
+      **layout fidelity（布局忠实度）**  
+      文档解析常常不止要“语义差不多”，还要“结构一致”：表格是不是同一张表、单元格边界是否一致、公式是否准确。
+
+      **一个关键区分：转写 vs 解释**  
+      - 转写（transcription）问的是：“页面上写了什么？”  
+      - 解释（interpretation/understanding）问的是：“这是什么意思/应该长什么样？”  
+      在表格与公式任务里，解释倾向会带来“填空”和“重构”，而 benchmark 往往惩罚这种偏离。
+
+  - type: md
+    title: 实验设置：同一数据集，不同 thinking 档位
+    body: |
+      原文在 OmniDocBench 的一个子集上做了对照：
+
+      - 数据：随机选 **10 个中等难度** + **30 个高难度**文档，难点包括复杂表格、多栏布局、混合方向文字、公式、低扫描质量。  
+      - 模型：GPT-5.2 的四个推理档位（Zero / Low / High / xHigh）。  
+      - 基线：LlamaParse Agentic（作者团队的解析 pipeline/agent）。
+
+      他们关心的不是“某个样本惊艳”，而是整体 tradeoff：质量、时间、成本如何随 thinking 改变。
+
+  - type: md
+    title: 核心结果：质量几乎不变，延迟与成本 5–8x 增长
+    body: |
+      原文的主表格非常直观（下面是同一口径下的汇总）：
+
+      | 模式 | Quality | Time(s) | Cost($) |
+      |---|---:|---:|---:|
+      | Zero Thinking | 0.795 | 47.89 | 0.029 |
+      | Low Thinking | 0.784 | 45.11 | 0.031 |
+      | High Thinking | 0.792 | 96.23 | 0.078 |
+      | xHigh Thinking | 0.790 | 241.70 | 0.246 |
+      | LlamaParse Agentic（baseline） | 0.821 | 18.71 | 0.013 |
+
+      结论可以分两层读：
+
+      - **“多想”没有带来更高 parsing 质量**：四个 thinking 档位的质量都在 ~0.79 附近波动。  
+      - **“多想”显著推高资源消耗**：从 Zero 到 xHigh，时间与成本上升到 5–8x 的量级。  
+      - **一个更反直觉的点**：一个更便宜的解析 pipeline（LlamaParse Agentic）在质量/速度/价格上都胜过高 thinking 档位。
+
+      这会改变一个常见工程直觉：在 parsing 任务里，瓶颈往往不是“逻辑推理不够”，而是“像素与布局信息没有被稳定读出来”。
+
+  - type: md
+    title: 失败模式 1：表格“填空”与字符幻觉（Table Infilling）
+    body: |
+      原文给了一个典型例子：一页来自扫描论文的表格。
+
+      - GPT-5.2 xHigh 在这一页上花了 **6 分钟以上**，使用了 **13,700+ reasoning tokens**，最终只产出约 **1,300** 输出 tokens（大约 10:1 的 reasoning/output 比例）。  
+      - 最显著的错误：把字符 **“4-CNY”** 幻觉成 **“4-CYN”**（其他 thinking 档位输出正确）。
+
+      更有代表性的“行为偏移”是：xHigh 倾向于把表格中原本留空的单元格补齐。  
+      从语义上，这种补齐可能“说得通”（作者认为论文作者为了省空间省略了重复项）；但从 parsing 的目标来看，它不再是忠实重建原表格结构，因此在 OmniDocBench 这种强调精确匹配的评测下会扣分。
+
+      你可以把它理解成：thinking 让模型更像一个“会补全的人类读者”，但 parsing 需要的是一个“严格的扫描仪”。
+
+  - type: md
+    title: 失败模式 2：一张表被拆成三张（结构被过度解释）
+    body: |
+      另一个例子是一张连续表格，其中某一行出现了类似分区标题的文字（例如 “Random generation”“Reading span”）。
+
+      从视觉结构看：行列对齐一致、边框连续，明显就是一张表。  
+      但原文观察到：高 thinking（High/xHigh）更容易把它拆成多个子表。
+
+      作者的解释是：模型“看见了一行像标题的东西”，就推断“这里应该是边界”；它用空间布局做了过度推断，从“所见即所得的转写”滑向“按它认为合理的结构重构”。
+
+      原文用一句话总结得很尖锐：**更多 thinking 会让模型用它认为“应该存在的结构”覆盖它真实看到的结构**。
+
+  - type: md
+    title: 失败模式 3：看不清就是看不清（你无法推理越过 vision encoder 的损失）
+    body: |
+      原文还强调了一类“推理无能为力”的失败：竖排小字、密集且模糊的区域。
+
+      他们观察到：当模型遇到难以辨认的区域时，会直接跳过并标记类似 [Illegible]。即使投入更多 thinking tokens，也无法把丢失的像素信息“推理回来”。
+
+      文中提到他们使用了 OpenAI 的 `detail=auto` 设置：它会在复杂图片上触发更高分辨率的处理（例如 512x512 的 tile crops，每块约 170 tokens）。但即便如此仍可能失败，这提示瓶颈发生在推理之前的图像编码阶段。
+
+      对工程意味着：在“读不出来”的问题上加 reasoning 预算，往往是在花钱买更强的“猜”。
+
+  - type: md
+    title: 那 thinking 什么时候有用？——理解图标/Logo（Understanding > Parsing）
+    body: |
+      原文并没有把 reasoning 一棍子打死：它给了一个 thinking 有优势的例子——图标与 logo。
+
+      base 模式往往把 logo 当成空白；而 xHigh 会把它描述出来（例如识别并描述图形里的文字与形状）。  
+      这恰好说明了差别：logo 不是“可 OCR 的字符”，它更像需要理解的视觉元素；此时 reasoning 的“解释倾向”反而是你想要的。
+
+      因此一个更稳的结论不是“别用 reasoning”，而是：**把 reasoning 留给需要理解/归纳的部分，不要用它去替代像素级读取**。
+
+  - type: md
+    title: 工程建议：用 pipeline 把每个组件放在它擅长的位置
+    body: |
+      原文提出的替代路线是 pipeline-based parsing：不要指望单次模型调用同时完成 OCR、布局、结构化；而是拆成专门组件，让每一步都对齐目标。
+
+      一个可迁移的 pipeline 形态是：
+
+      1) **先做确定性的 OCR / 像素级读取**（尽可能在原生分辨率读出文本）。  
+      2) **再做布局与结构分析**（例如表格边界、行列跨越、阅读顺序）。  
+      3) **最后让 LLM 在“已读出的文本”上组织结构并校验**。
+
+      原文强调：这个架构之所以能缓解“过度推理”，是因为它把三类失败模式分别压住：
+
+      - **No hallucinations**：预先抽取的确定性文本可以校验单元格内容，减少填空/改字。  
+      - **No splitting**：在内容抽取前先确定表格边界，避免模型凭语义把结构拆散。  
+      - **No resolution limits**：原生 OCR 捕获 vision encoder 容易丢的细节。
+
+      同时，作者也提到他们并非完全不用“agentic reasoning”：而是在 pipeline 的局部用 agent loop 做结构化输出与原始 OCR 数据的对齐与验证，让 reasoning 被用在“需要推理的地方”，而不是用来猜像素。
+
+  - type: md
+    title: 练习：把“何时用 reasoning”写成你的解析策略
+    body: |
+      选一个你关心的文档场景（财报表格、论文公式、多栏 PDF、扫描合同等），写下你的策略草图：
+
+      1) 你的 parsing 目标更偏“忠实转写”还是“语义理解”？哪些字段必须严格一致（表格结构/公式）？  
+      2) 你准备怎样分层：OCR、layout、结构化、校验分别由谁做？  
+      3) 你会把 reasoning 放到哪一层？它的输入是什么（原始图像/已 OCR 文本/结构化草稿）？它的输出如何被校验？  
+      4) 你会用哪两个指标监控回归：一个偏结构（例如表格结构相似），一个偏内容（例如字符/公式准确）。
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-02-19
+      - 来源：LlamaIndex
+      - 建议：阅读时可以特别关注三个“行为偏移”例子（填空、拆表、看不清），并留意作者对 parsing vs understanding 的区分；再对照文末的 pipeline 建议，思考你自己的系统应该把 reasoning 放在哪些局部环节，而不是整体拉满。
+
+  - type: url
+    title: "原文：The Cost of Overthinking: Why Reasoning Models Fail at Document Parsing"
+    url: https://www.llamaindex.ai/blog/the-cost-of-overthinking-why-reasoning-models-fail-at-document-parsing
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      文中使用的模型与“thinking 档位”的控制方式可能随 API 与产品更新而变化；但它揭示的结构性矛盾（parsing 追求高保真、reasoning 倾向补全与重构）通常不会因为换一个更强模型就自动消失。迁移时更建议保留“对照实验 + 失败模式归因”的方法，而不是复用某个固定的阈值。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) 在 parsing 里，“理解得更像人”可能带来错误，是因为它会诱发补全与重构（填空、拆表），而 parsing 的评分口径往往惩罚这种结构偏离。  
+      2) reasoning tokens 的主要收益是更强的语义解释能力（例如描述 logo），主要副作用是更高成本/延迟，以及更强的“按理想结构推断”的倾向。  
+      3) 当更多 thinking 不提升质量时，更划算的做法是 pipeline：先确定性 OCR/布局，再让 LLM 在已读出的文本上做结构化与校验，把 reasoning 放到局部的“结构决策与验证”环节。  
+      4) 评测与分析要围绕失败模式设计：表格结构（是否拆分/跨行列）与内容准确（字符/公式）最好分开看；否则你会把“结构变形”和“字符读错”混在一个总分里，难以定位到底该改 OCR、改布局还是改 LLM。
+

@@ -1,30 +1,152 @@
 id: devblog-2026-01-28-context-management-for-deep-agents
-title: "Context Management for Deep Agents"
+title: "深度 agent 的上下文压缩：tool 卸载、阈值、结构化摘要与 targeted eval"
 summary: |
-  背景：长任务 agent 的“可解决任务长度”在增长，但 context window 仍有限且会 context rot；因此 Deep Agents SDK 把 context management（更准确说：context compression）做进 harness。
+  这篇文章讨论 Deep Agents SDK 如何把“context management”工程化进 agent harness：当长任务把上下文推向上限、并触发 context rot 时，与其幻想“更长窗口=更强”，不如把上下文当作有限工作内存，通过三类压缩机制续航：大 tool 结果卸载到文件系统（>20k tokens）、大 tool 输入卸载（超过窗口 85% 时截断旧 write/edit 参数）、以及在无法再卸载时的结构化 summarization fallback（intent/artifacts/next steps + 完整消息写盘）。文章还强调验证方式：用更激进阈值在 benchmark 上“放大压缩事件”，再用 targeted evals 检查可恢复性与 goal drift。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2026-01-28
-      - 来源：LangChain
-      - URL：https://blog.langchain.com/context-management-for-deepagents
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LangChain/Agents_and_Tooling/2026-01-28__context-management-for-deep-agents__e0950f99f1.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      当 agent 的“可解决任务长度”越来越长时，一个现实约束仍然没消失：模型的 context window 是有限的，而且上下文越满越容易发生 context rot（信息在，但模型用不好）。
+
+      这篇文章很值得学习的地方在于：它不把“上下文压缩”当成一个 prompt 技巧，而是把它当成 harness 的系统能力，并给出可执行的策略与验证方法。
+
+      读完后你应该能回答：
+
+      1) Deep Agents 为什么把文件系统（filesystem abstraction）当成上下文压缩的关键组件？  
+      2) 三种压缩机制分别在什么条件下触发？它们各自解决哪种“上下文膨胀”来源？  
+      3) summarization 为什么不是第一选择，而是“卸载做不动了”的 fallback？  
+      4) 你如何验证压缩机制没有把 agent 搞偏：可恢复性（recoverability）与目标漂移（goal drift）怎么测？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：context compression、offloading 与 harness
     body: |
-      - 主题：context compression、filesystem offloading、summarization fallback、threshold tuning、targeted evals、recoverability tests
-      - 要点：
-        - 背景：长任务 agent 的“可解决任务长度”在增长，但 context window 仍有限且会 context rot；因此 Deep Agents SDK 把 context management（更准确说：context compression）做进 harness。
-        - Deep Agents 的核心抽象：给 agent 一个 filesystem（list/read/write/search/execute），把不该长期占用上下文的大对象卸载到磁盘，并在需要时再检索回来。
-        - 三类压缩机制（触发频率不同）：
-          - 大 tool 结果卸载：当某次 tool response 超过 **20,000 tokens**，立即写入 filesystem，并在对话里替换成“文件路径引用 + 前 10 行预览”，让 agent 需要时再读/grep。
-          - 大 tool 输入卸载：当 session context 超过模型窗口的 **85%**，把更早的 write/edit tool 调用参数（通常含整段文件内容）截断成“指向磁盘文件的指针”，因为这些内容本来就已经持久化在文件系统里。
-          - Summarization：当超过阈值且已无可卸载内容时，用 LLM 生成**结构化摘要**（session intent、生成的 artifacts、next steps），用摘要替换完整历史；同时把原始完整消息写入 filesystem 作为“可追溯的 canonical record”，确保可恢复细节。
-        - “这套机制怎么验证有效”：作者建议在 benchmark/样例任务上**故意把阈值调得更激进**（例如把 summarization 从默认阈值改成在窗口 **10–20%** 就触发），以产生更多压缩事件，放大单个机制的信号，便于比较实现差异（比如在总结 prompt 里显式加“intent/next steps”字段来减少 goal drift）。
-        - 提出 targeted evals（类似集成测试）来隔离问题：
-          - summarization 是否保留目标？（中途强制总结，看 agent 是否继续完成任务）
-          - summarization 后是否可恢复关键事实？（埋一个 needle-in-haystack 事实，强制总结后要求 agent 通过 filesystem search 找回）
-        - 最危险的失败模式是 goal drift：总结后 agent 忘记用户意图、误判已完成、或开始问无关澄清；因此要监控并用高频压缩压力测试来暴露。
+      **Context compression（上下文压缩）**  
+      原文给出一个很清晰的定义：减少工作内存里的信息量，同时尽量保留完成任务所需的细节。它可以是过滤、卸载、或总结。
+
+      **Filesystem abstraction（文件系统抽象）**  
+      Deep Agents 提供一层文件系统能力（list/read/write/search/pattern matching/execute），让 agent 可以把“大块内容”写到窗外，再在需要时读取或搜索回来。
+
+      直觉上，filesystem 在这里扮演“外存”：把上下文从“必须全塞在 prompt”变成“可在磁盘上保存、按需检索”。
+
+      **Threshold fractions（阈值分数）**  
+      原文提到压缩机制是按“占用窗口比例”触发的，并用 model profiles 获得不同模型的 token 阈值。
+
+      **Targeted evals（靶向评测）**  
+      一组故意很小的 integration tests，用来隔离验证某个机制是否工作（而不是评估模型总体能力）。
+
+  - type: md
+    title: 机制总览：三种压缩手段，触发频率不同
+    body: |
+      原文把 Deep Agents 的压缩机制分成三类，并强调它们触发频率不同：
+
+      1) **Offloading large tool results**：只要出现“超大工具返回”，立刻卸载。  
+      2) **Offloading large tool inputs**：当上下文占用超过阈值时，卸载历史里冗余的 write/edit 参数。  
+      3) **Summarization fallback**：当卸载不再释放足够空间时，才进入总结压缩。
+
+      你可以把它理解成优先级：能“写盘留引用”就不要“总结丢细节”；总结是最后的压缩手段。
+
+  - type: md
+    title: 技术 1：大 tool 结果卸载（> 20,000 tokens）
+    body: |
+      工具调用的返回（读大文件、API 返回大 payload）有时会直接超过模型窗口。
+
+      原文给出一个硬阈值策略：当 tool response 超过 **20,000 tokens**：
+
+      - 把完整 response 写入文件系统  
+      - 在对话中用“文件路径引用 + 前 10 行预览”替换原始大块内容  
+      - agent 需要时再用 read/search 把内容取回
+
+      这种做法的价值在于：你把“巨大 blob”从上下文里挪走，但仍保留可恢复入口，不会因为压缩导致不可追溯。
+
+  - type: md
+    title: 技术 2：大 tool 输入卸载（超过窗口 85% 时截断旧 write/edit 参数）
+    body: |
+      写文件/编辑文件类工具会在对话历史里留下“完整文件内容”的参数，这在长任务里会非常占空间。
+
+      原文指出：这类内容往往是冗余的——因为文件内容已经持久化在文件系统里。
+
+      因此当 session context 超过模型窗口的 **85%** 时，Deep Agents 会：
+
+      - 截断更早的 write/edit 工具调用参数  
+      - 用“指向磁盘文件的指针”替换  
+
+      这等价于把历史里“已经写入磁盘的内容”从工作内存里卸载掉，让上下文更多承载决策与下一步，而不是重复承载文件全文。
+
+  - type: md
+    title: 技术 3：Summarization fallback（结构化摘要 + 完整消息写盘）
+    body: |
+      当卸载已经不够用时，原文说 Deep Agents 会 fallback 到 summarization，并把它拆成两个组件：
+
+      1) **In-context summary（窗内结构化摘要）**  
+         用 LLM 生成结构化摘要，替换完整历史。摘要包含至少三类字段：session intent、artifacts created、next steps。  
+         这些字段的选择很“面向续航”：它们帮助 agent 在压缩后仍知道“我在做什么、已经做了什么、下一步是什么”。
+
+      2) **Filesystem preservation（完整消息写盘）**  
+         把原始完整对话消息写入文件系统，作为 canonical record。  
+         这样当某个关键细节被总结“压掉”时，agent 仍可以通过 filesystem search 找回。
+
+      这个“双轨”设计解释了为什么 summarization 在工程上必须与“可恢复入口”配套，否则压缩会变成不可逆信息损失。
+
+  - type: md
+    title: 怎么知道这些机制真的在工作：把阈值调激进，放大信号
+    body: |
+      原文指出一个现实问题：在真实任务或大型 benchmark（例如 terminal-bench）里，压缩事件可能触发得很零星，导致你很难比较不同实现的效果。
+
+      他们采用的办法是“增大单个机制的信号”：
+
+      - 人为把 summarization 的触发阈值调得更激进（例如在窗口 **10%-20%** 就触发，或用 25% 替代默认 85%）  
+      - 这样会产生更多 summarization 事件，便于比较不同配置/实现差异
+
+      原文举了一个很具体的改进例子：在 summarization prompt 里加入 session intent 与 next steps 的专门字段，能改善压缩后的表现。
+
+  - type: md
+    title: Targeted evals：用小测试验证“可恢复性”与“目标不漂移”
+    body: |
+      原文强调：targeted evals 的目标不是测“任务能力”，而是测“harness 不要拖后腿”。
+
+      它给出两类非常典型的测试：
+
+      1) **Summarization 是否保留目标（objective preservation）**  
+         故意在任务中途触发 summarization，然后检查 agent 是否还能继续推进任务，而不是偏航或停下来问无关澄清。
+
+      2) **Summarization 后能否恢复关键事实（recoverability）**  
+         在对话早期埋一个 needle-in-the-haystack 事实，强制触发 summarization 后让 agent 在后续必须用到该事实完成任务。  
+         这个事实在 active context 里已经不存在，必须通过 filesystem search 才能找回。
+
+      这两类测试直接对应原文最担心的失败模式：**goal drift**——总结后 agent 忘了用户意图、误判任务已完成、或开始走向无关路径。
+
+  - type: md
+    title: 练习：为你的 agent 写 2 个 context 压缩集成测试
+    body: |
+      选一个你正在做的工具型 agent，写两个小型 integration tests（不需要大数据集）：
+
+      1) objective preservation：在任务中途强制触发一次 summarization/compaction，然后断言 agent 能继续完成剩余步骤。  
+      2) recoverability：在早期注入一个关键事实或关键文件路径，压缩后要求 agent 通过工具（filesystem search/read）找回并正确使用。
+
+      如果你还没有 filesystem abstraction，也可以先用“写到本地文件 + 再读回”的最小实现替代。
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-01-28
+      - 来源：LangChain
+      - 建议：阅读原文时建议重点核对四个细节：1) 20,000 tokens 的 tool result 卸载规则与“前 10 行预览”；2) 85% 阈值下对旧 write/edit 参数的截断与指针替换；3) summarization 的结构化字段（intent/artifacts/next steps）+ 完整消息写盘；4) targeted evals（objective preservation + needle recoverability）与“把阈值调激进放大信号”的评估方法。
+
+  - type: url
+    title: "原文：Context Management for Deep Agents"
+    url: https://blog.langchain.com/context-management-for-deepagents
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      Deep Agents SDK 的默认阈值、工具中间件实现、以及具体 prompt 链接可能会随版本变化。
+      更可迁移的是机制本身：用 filesystem 做 offloading（清大结果/清冗余输入）、用结构化 summarization 维持 intent 与 next steps、并用 targeted evals 持续验证压缩后的可恢复性与 goal drift 风险。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) filesystem abstraction 把磁盘变成“外存”，让上下文不必承载所有大块内容；压缩可以通过“写盘留引用 + 按需检索”实现可恢复。  
+      2) 三种机制各对准不同来源的上下文膨胀：大工具结果（>20k）立刻卸载；历史 write/edit 参数在 85% 阈值后卸载；卸载不动时才 summarization。  
+      3) summarization 之所以是 fallback，是因为它更可能丢细节；因此必须配套“完整消息写盘”作为 canonical record 来保证 recoverability。  
+      4) 验证压缩策略的关键不是跑一次大 benchmark，而是用 targeted evals 放大信号：测 objective preservation、测 needle recoverability，并监控 goal drift。

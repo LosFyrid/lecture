@@ -1,38 +1,142 @@
 id: devblog-2026-02-03-skills-vs-mcp-tools-for-agents-when-to-use-what
-title: "Skills vs MCP tools for agents: when to use what"
+title: "Skills vs MCP：能力注入的两条路线与规模化权衡"
 summary: |
-  文章试图澄清一个常见争论：让 agent 获得能力时，到底该用 MCP tools（协议化工具）还是 skills（本地说明/流程）？结论不是“二选一”，而是按用例权衡。
+  这篇文章澄清一个常见争论：让 agent 获得能力/知识时，到底该用 MCP tools（协议化、确定性的工具接口）还是 skills（本地 markdown 指令与流程）？原文的结论不是二选一，而是看用例：MCP 更像函数式接口（schema 明确、执行可预测，但有网络延迟与工具规模化/发现难题）；skills 更像“上下文修改”（零配置、可无限定制、非开发者也能写，但执行依赖模型对自然语言指令的理解，存在误解/幻觉风险）。作者还用 LlamaAgents Builder 的经验说明：在快速演进的领域，单一事实源（single source of truth）往往更重要，因此他们更倾向 MCP。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2026-02-03
-      - 来源：LlamaIndex
-      - URL：https://www.llamaindex.ai/blog/skills-vs-mcp-tools-for-agents-when-to-use-what
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LlamaIndex/Agents_and_Tooling/2026-02-03__skills-vs-mcp-tools-for-agents-when-to-use-what__61551be848.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      当你想让 agent “会做更多事”时，通常有两条路线：
+
+      - 给它 tools：模型选择工具 → 传参 → 得到结构化结果。  
+      - 给它 skills：模型读一份流程说明（SKILL.md）→ 按说明执行（可能调用命令、脚本、参考文档）。
+
+      这篇文章的价值在于：它把两者的差异拆成工程维度（setup、执行模型、延迟、维护、规模化），并用一个真实产品的选择经历解释“为什么有时 MCP 更合适”。
+
+      读完后你应该能回答：
+
+      1) MCP 与 skills 的执行模型有什么本质差别？为什么一个更确定、一个更解释性？  
+      2) MCP 的三类典型代价是什么（工具发现、上下文膨胀、网络延迟）？  
+      3) skills 为什么容易被误解/幻觉影响？它把难点从“选哪个工具”变成了什么？  
+      4) 当领域快速变化（代码示例/最佳实践经常更新）时，为什么“single source of truth”会让 MCP 更占优？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：tool 是函数接口，skill 是上下文修改
     body: |
-      - 主题：skills vs MCP、deterministic tools vs natural-language procedures、setup/latency/context bloat、discovery scaling、single source of truth
-      - 要点：
-        - 文章试图澄清一个常见争论：让 agent 获得能力时，到底该用 MCP tools（协议化工具）还是 skills（本地说明/流程）？结论不是“二选一”，而是按用例权衡。
-        - MCP 的定位：协议化工具（来自第三方服务），对开发者友好但对非技术用户门槛较高（认证、传输、CLI/stdio）。优点是：
-          - 执行更可预测：一旦选择了 tool，底层就是确定性的 API 调用；
-          - 输入输出 schema 明确，易于验证。
-        - MCP 的三类典型问题：
-          - 工具规模化难：工具越多，name/description discovery 越难，促生“gateway/发现中间层”；
-          - 不优化的 tool 会把上下文塞爆（返回大段内容）；
-          - 网络调用带来延迟。
-        - Skills 的定位：一组本地的、领域特定的自然语言指令（通常在 `SKILL.md` 中，可引用脚本/参考文档）。执行模式是：
-          - agent 先匹配 skill → 读入 skill 正文 → 在“skill 提供的上下文”里执行用户请求（相当于一次上下文修改/重启）。
-          - 优点：几乎零配置、可无限定制、非开发者也能写；且本地执行无网络开销。
-        - Skills 的主要风险：它不是确定性 API，而是“模型解释指令再执行”，因此会受误解/幻觉影响；对 agent 来说难点从“选哪个工具”升级为“选哪个 skill + 何时用 + 怎么按指令做”。
-        - 文章给出一个对比表（可迁移的维度）：
-          - Setup：MCP 中等复杂；skills 最简；
-          - 执行：MCP 确定性 schema；skills 解释性；
-          - 性能：MCP 有网络延迟；skills 本地快；
-          - 维护：MCP server 更新可集中传播；skills 需要手动更新本地 markdown；
-          - 规模化：MCP 工具发现复杂；skills 添加容易但选择/执行复杂度上升。
-        - “什么时候更适合 MCP”这个判断在文中用一个经验解释：当你的领域/代码/最佳实践变化很快时，skills 会频繁过期；而 MCP 把知识源集中为单一事实源（docs/服务端），更易保持最新，因此更适合 fast-evolving space。反之，稳定且轻量的流程指导，用 skills 更省事。
+      **MCP tools（协议化工具）**  
+      原文把 MCP 描述成一种扩展 LLM 能力的协议：通过第三方服务提供 tools（以及 resources、prompts）。它更接近“函数式接口”：输入 schema 与输出结果更明确，执行更可预测。
+
+      **Skills（技能/流程）**  
+      原文把 skills 定义为一组本地的、领域特定的自然语言指令，通常放在 markdown 文件里（`SKILL.md`），可以引用脚本与额外参考文档。  
+      它更像“上下文修改（contextual modification）”：agent 匹配到 skill 后，会把 skill 的指令注入上下文（甚至创建一个“新上下文窗口”来执行），再把结果带回主对话。
+
+      一个很实用的对比是：
+
+      - MCP：难点主要在“选哪个 tool、何时调用”。一旦调用，底层就是确定性 API。  
+      - Skills：难点变成“选哪个 skill、何时用、以及如何按自然语言把步骤做对”。“如何做”这部分要靠模型解释指令完成，因此不如 tool 确定。
+
+  - type: md
+    title: MCP：优势是可预测与精确，代价是规模化与延迟
+    body: |
+      原文认为 MCP 的优势在于“执行可预测、响应精确”：
+
+      - 每个 tool 的 scope 通常较窄  
+      - 输入输出 schema 清楚  
+      - 相同输入条件下，结果更可预测（更像函数调用）
+
+      但它也列出三类 downside：
+
+      1) **工具规模化难（discovery hard）**：工具越多，agent 越难通过 name/description 找到正确工具；这推动了 MCP gateways / discovery middlewares 的需求。  
+      2) **不优化的 tool 会把上下文塞爆**：例如返回大段内容，直接造成 context bloat。  
+      3) **网络延迟**：MCP tools 往往要访问外部服务，单次调用就有网络往返；skills 运行在本地没有这类开销（当然，skills 可能仍会触发本地命令或其它 IO）。
+
+  - type: md
+    title: Skills：优势是零配置与可定制，代价是“解释性执行”
+    body: |
+      原文认为 skills 的优势很直观：
+
+      - 几乎零配置：本质是一堆本地文件  
+      - 非开发者也能写：用自然语言描述流程  
+      - 定制空间大：可以嵌入命令、脚本、参考文档链接
+
+      文章给了一个典型目录结构（用 `.claude/skills` 做示例）：
+
+      ```text
+      .claude/skills/
+      ├── pdf-parsing/
+      │   ├── script.py
+      │   └── SKILL.md
+      ├── python-code-style/
+      │   ├── REFERENCE.md
+      │   └── SKILL.md
+      └── web-scraping/
+          └── SKILL.md
+      ```
+
+      `SKILL.md` 里通常有 YAML frontmatter（name/description/version/tags），正文写具体步骤。
+
+      原文同时强调一个关键代价：skills 不是 deterministic 的 API。它是自然语言指令，模型可能误解、遗漏步骤或产生幻觉。  
+      所以 skills 看起来像“给了一个工具”，但实际上是“给了一个说明书”，执行质量取决于模型是否把说明书读懂并照做。
+
+  - type: md
+    title: 作者的经验：快速演进领域更需要 single source of truth
+    body: |
+      原文用 LlamaAgents Builder 的经历说明“怎么选”：
+
+      - 他们曾经同时给 agent 提供 Documentation MCP 与自定义 skills，设想是：MCP 用于规划（更大的知识库），skills 用于写代码时的流程指导。  
+      - 实测观察：Documentation MCP 提供的上下文经常已经足够让 agent 生成符合模式的代码；skills 很少被调用，而且在效果上并没有显著优于“只用 MCP”。
+
+      最终他们更倾向 MCP 的原因来自维护现实：如果 agent 要在一个快速变化的空间工作（SDK/最佳实践经常更新），skills 需要不断手动更新，否则很快过时；而 MCP 背后可以是持续更新的文档/服务端，形成 single source of truth，更容易保持“永远是最新”。
+
+  - type: md
+    title: 选择指南：用一张表把权衡说清楚
+    body: |
+      原文给出了一张对照表（这里用更贴近工程的语言总结）：
+
+      | 维度 | MCP | Skills |
+      |---|---|---|
+      | Setup | 中等（需要懂 auth/transport/CLI 等） | 很低（本地 markdown） |
+      | 执行模型 | 确定性 API + schema | 模型解释自然语言步骤 |
+      | 性能 | 每次调用有网络延迟 | 本地无网络往返（但可能有本地 IO） |
+      | 维护 | 集中更新（server/文档更新可传播） | 手动更新本地文件 |
+      | 规模化 | 工具多时 discovery 难 | 添加容易，但“选择+执行”复杂度上升 |
+      | 失败模式 | 选错工具 | 选错 skill + 误解步骤 + 选错工具 |
+
+      这张表的隐含结论是：MCP 更像“工程接口”，skills 更像“流程手册”。你要选的是哪类问题更像你当前的瓶颈。
+
+  - type: md
+    title: 练习：同一个能力，分别用 MCP 与 skill 设计一遍
+    body: |
+      选一个你常见的能力（例如：网页抓取、PDF 解析、部署、跑测试），做一个对比设计：
+
+      1) MCP 版本：写出 tool 的 `name/description/inputSchema`，并设计返回值（避免返回大段 blob）。  
+      2) Skill 版本：写一份 `SKILL.md`（frontmatter + 5-10 行步骤），并明确“什么时候必须向用户确认”。  
+      3) 写下你的判断：在你的使用场景里，哪一版更可能长期可维护？哪一版更容易规模化？
+
+      目标不是站队，而是把“争论”变成一次可复盘的工程选择。
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-02-03
+      - 来源：LlamaIndex
+      - 建议：阅读原文时建议重点看三段：1) MCP 的三类 downside（discovery/context bloat/latency）；2) skills 的执行语义（contextual modification + fresh context window）与“解释性执行”风险；3) LlamaAgents Builder 的选择原因（快速演进领域需要 single source of truth）。
+
+  - type: url
+    title: "原文：Skills vs MCP tools for agents: when to use what"
+    url: https://www.llamaindex.ai/blog/skills-vs-mcp-tools-for-agents-when-to-use-what
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      原文对 skills 的目录结构、示例命令与具体框架细节可能会随生态变化而变化。
+      更可迁移的是权衡框架：把 MCP 视为确定性工具接口，把 skills 视为可版本化的流程说明书；当领域快速演进且你需要 single source of truth 时，集中维护的 MCP 往往更省心。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) MCP 与 skills 的本质差别在执行模型：MCP 是“选 tool 后走确定性 API”，skills 是“读说明书后由模型解释执行”。  
+      2) MCP 的典型代价是：工具多时 discovery 变难、不优化输出会造成 context bloat、以及每次调用的网络延迟。  
+      3) skills 的典型风险是误解与幻觉：难点从“选哪个工具”升级为“选哪个 skill + 何时用 + 如何按步骤做”。  
+      4) 在快速演进领域，single source of truth 很关键：集中更新的 MCP 更容易保持最新；skills 若不持续维护则更容易过时。

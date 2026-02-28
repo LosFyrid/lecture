@@ -1,33 +1,160 @@
 id: devblog-2026-01-19-context-kit
-title: "context-kit"
+title: "最小可运行的 Context 工程组件：Select/Write/Compress 的代码化实现"
 summary: |
-  项目定位：不是 agent framework，而是一个**最小、框架无关**的 context engineering toolkit（“Do the simplest thing that works”），用纯函数 + `Context` dataclass 帮你把概念落到代码上。
+  context-kit 是一个“最小、框架无关”的 context engineering 工具箱：不是又一个 agent 框架，而是一组纯函数 + `Context` dataclass，帮助你把 Select / Write / Compress 三个核心机制落到可读、可组合的代码上。原文最有价值的部分是两点：一是把“上下文=有限资源”讲成可执行的模块边界；二是给出 `compress_by_rule` 这种非常工程化的压缩策略（清旧 tool results/可选清 thinking，并把清掉的内容归档到 memory，留下可检索引用）。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2026-01-19
-      - 来源：ContextKit
-      - URL：https://github.com/keli-wen/context-kit
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/ContextKit/Agents_and_Tooling/unknown-date__context-kit__a8ff5c2eec.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      当你从“写 prompt”走向“做 agent 系统”，上下文管理会变成日常工程：工具输出越来越多、历史越来越长、模型越来越容易被噪声带偏。
+
+      你可能已经在概念上听过 Select / Write / Compress，但更难的是：**怎么把它们写成可落地、可测试、可复用的代码？**
+
+      context-kit 的定位就是回答这个问题：用最少的抽象，把关键机制做成你可以直接抄进自己项目的组件。
+
+      读完后你应该能回答：
+
+      1) 为什么作者强调 “Do the simplest thing that works”？最小工具箱解决的是什么学习/工程问题？  
+      2) `Context` dataclass 帮你把什么东西“实体化”了？为什么这比一堆 messages 更利于压缩与迁移？  
+      3) `compress_by_rule` 到底在做什么：清哪些内容、保留哪些内容、如何留下“可检索引用”？  
+      4) Select（list→grep→read）与 Memory（文件式 CRUD）如何组合成一个可持续的 agent loop？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：把 Select / Write / Compress 变成模块边界
     body: |
-      - 主题：最小化 context engineering 工具箱、Select/Write/Compress、Context dataclass、tool result clearing、memory persistence、progressive disclosure
-      - 要点：
-        - 项目定位：不是 agent framework，而是一个**最小、框架无关**的 context engineering toolkit（“Do the simplest thing that works”），用纯函数 + `Context` dataclass 帮你把概念落到代码上。
-        - 背后的问题意识：模型更强后瓶颈转向“如何管理 context”；context rot 说明上下文越满性能会退化，因此需要把 context 当作“有限且边际收益递减”的资源。
-        - 采用 4-pillar 心智模型（其中实现前 3 个）：
-          - Select：JIT 检索，按需拉取信息；
-          - Write：把信息写到窗外（持久化）；
-          - Compress：在保信号前提下缩小上下文；
-          - Isolate：多 agent/隔离（由框架层处理）。
-        - `Context` dataclass：支持从不同 provider 的 message 格式导入/导出（OpenAI / Anthropic / Google），并提供压缩与 token 估算等能力。
-        - 两类压缩手段：
-          - `compress_by_rule`：规则压缩（重点是**清旧 tool results** 与可选的 thinking blocks），只保留最近 `keep_tool_uses=N`；可对某些工具设置 `exclude_tools`；可把被清除内容归档到 memory，并在原位置留下“可检索引用”（提示用 `memory_read(...)` 取回）。
-          - `compress_by_model`：用 LLM 对旧对话做总结压缩（`instruction` 指定保留决策/未解决问题、丢弃探索性尝试；`keep_recent` 控制保留最近轮次）。
-        - Select（JIT 检索）的实现遵循 progressive disclosure：先 `list_dir` 获得地图 → `grep` 缩小范围 → `read_file` 按需加载片段，从低 token 成本逐步逼近关键上下文。
-        - Memory 模块：在 context window 外做文件式 CRUD（create/view/str_replace/insert/delete），让 agent 可以把“稳定信息/笔记/清理出的结果”放到窗外。
-        - Tool integration：可导出 memory/select 的工具定义，便于接入不同 agent 框架；同时提供跨 provider 的 LLM adapter（含对 thinking/reasoning 块的实验性兼容）。
+      原文把 Context Engineering 的“支柱”讲得非常清晰，并直接映射到模块：
+
+      - **Select（JIT retrieval）**：按需拉取信息，避免一开始把所有材料塞进窗口。对应模块 `select`。  
+      - **Write（context persistence）**：把稳定信息写到窗外（文件/笔记/记忆库），需要时再读回。对应模块 `memory`。  
+      - **Compress（压缩保信号）**：当历史变长时，把低价值内容折叠掉，保留后续可继续执行的信号。对应 `Context.compress_*`。  
+      - **Isolate（隔离子任务上下文）**：把子任务放到干净上下文里跑，避免污染主线；作者明确把它放在“框架层”，不由 context-kit 直接实现。
+
+      这套拆分的意义在于：你可以把上下文当成“可编译视图（compiled view）”，而不是把 prompt 当成“手工体操”。
+
+  - type: md
+    title: context-kit 的设计哲学：Minimal、Composable、Framework-agnostic
+    body: |
+      原文反复强调 context-kit “是什么 / 不是什么”：
+
+      - 它是：纯函数 + 轻量核心数据结构（Context dataclass），代码可读、用于学习、可以随意嵌入任何框架。  
+      - 它不是：新的 agent framework、LLM API wrapper、代理服务器。
+
+      对学习者来说，这种“最小化”有一个很实际的好处：你能看清每个机制是怎么工作的，而不是被框架的运行时细节淹没。
+
+  - type: md
+    title: Context dataclass：把“消息历史”升级为可操作的数据结构
+    body: |
+      原文把 `Context` 作为核心对象：它负责管理对话历史，并提供两类关键能力：
+
+      1) **格式转换**：从不同 provider 的 message/contents 格式导入/导出（例如 OpenAI / Anthropic / Google）。  
+      2) **压缩操作**：提供 rule-based 与 model-based 两种压缩方式，并支持 token 估算。
+
+      这种抽象的工程价值在于：你后续做压缩、清理、归档、甚至跨 provider 迁移时，不需要在每家 SDK 的“消息细节”里做手工兼容。
+
+  - type: md
+    title: Compress（规则版）：`compress_by_rule` = 清旧 tool results +（可选）清 thinking
+    body: |
+      原文最“工程化”的部分是 `compress_by_rule`，它对齐了 Claude 的 Context Editing 思路：优先清理旧的 tool results（以及可选的 thinking blocks），以更小的代价把上下文从“日志堆”变回“工作台”。
+
+      你可以把它理解成三步：
+
+      1) **只保留最近 N 次 tool uses 的结果**：例如 `keep_tool_uses=3`。  
+      2) **可排除某些工具不清理**：例如 `exclude_tools=["read_file"]`（有时你希望保留最近读到的证据片段）。  
+      3) **可把被清掉的内容归档到 memory**：指定 `memory_path` 后，清除处会留下一个占位提示，告诉你“如果需要，用 memory_read(...) 取回”。
+
+      这种“清掉但留引用”的做法很重要：它避免了压缩带来的不可逆信息丢失，同时让主上下文保持轻量与可聚焦。
+
+  - type: md
+    title: Compress（模型版）：`compress_by_model` = 让 LLM 总结旧轮次
+    body: |
+      除了规则清理，原文还提供了 `compress_by_model`：用 LLM 对较旧的对话轮次做总结压缩，并允许你用 `instruction` 明确“保留什么/丢弃什么”，再用 `keep_recent` 保留最近若干轮不压缩。
+
+      这种压缩更灵活，但风险也更典型：
+
+      - 总结可能丢掉“当时不重要、后来变重要”的细节  
+      - 总结质量取决于 instruction 与样例 traces
+
+      因此原文更像把它当作“需要在真实 traces 上迭代的工程能力”，而不是一劳永逸的开关。
+
+  - type: md
+    title: Select：progressive disclosure（list → grep → read）
+    body: |
+      原文把 Select 写成一个非常具体的 JIT 检索模式：progressive disclosure。
+
+      - Step 1：`list_dir` 先拿“地图”（低 token 成本）  
+      - Step 2：`grep` 缩小范围  
+      - Step 3：`read_file` 按需加载片段
+
+      这个模式对 coding agents 特别实用：它让模型先学会在目录/文件名/少量匹配上定位，而不是一上来就把一堆文件内容全塞进上下文。
+
+  - type: md
+    title: Write（Memory）：文件式 CRUD，让“窗外记忆”可编程
+    body: |
+      原文的 Memory 模块提供一组文件式 CRUD 操作（view/create/str_replace/insert/delete），用来把稳定信息写到 context window 外。
+
+      你可以把它当成一种“可移植的 agentic memory 接口”：
+
+      - 压缩时把旧 tool results 归档到 memory（保留证据入口）  
+      - 运行时把 TODO/NOTES/决策日志写到 memory（跨多轮保持一致）  
+      - 需要时再读回（按需注入上下文）
+
+      这种设计让记忆更像工程工件：能 diff、能 review、能回放，也更容易做权限控制与脱敏。
+
+  - type: md
+    title: 工具导出与适配器：把能力喂给任何框架
+    body: |
+      原文提供了两类“接入层”能力：
+
+      - Tools export：例如 `get_memory_tools` / `get_select_tools` / `get_all_tools`，把 memory/select 以工具形式导出给不同 agent 框架。  
+      - LLM adapters：统一不同 provider 的调用接口，并实验性支持各家 “thinking/reasoning blocks” 的格式差异（原文明确提示：这是实验性支持，provider API 可能变化）。
+
+      这两层让 context-kit 更像“积木”而不是“平台”：你可以只拿 Select，也可以只拿 Compress，也可以把三者组合嵌入现有系统。
+
+  - type: md
+    title: 把它放进一个真实 loop：压缩 + 窗外记忆 + 按需检索
+    body: |
+      用一个 coding agent 的场景串起来会更直观：
+
+      - agent 每次读文件/grep/跑命令都会产生 tool results，历史很快变长  
+      - 你用 `compress_by_rule(keep_tool_uses=3, memory_path=...)` 清掉旧结果，但把它们归档到 memory，并留下“可取回”的引用  
+      - 当 agent 需要回溯某次 grep 细节时，它可以用 memory 工具把归档读回  
+      - 当 agent 需要找相关文件时，用 Select 的 list→grep→read 逐层缩小范围
+
+      这就是原文想表达的“最小可运行”：不需要先上一个巨型框架，就能把上下文从“不可控日志堆”变成“可编排的数据结构”。
+
+  - type: md
+    title: 练习：把 compress_by_rule 变成你的默认防退化开关
+    body: |
+      选一个你正在做的工具型 agent（哪怕只是一个脚本），完成下面三个动作：
+
+      1) 选一个 `memory_path`（例如 `./agent_data`），实现 memory 工具的读写。  
+      2) 在 agent 每次工具调用后（或每 N 次调用后）运行一次 `compress_by_rule`：保留最近 `keep_tool_uses=3`，并把清掉的结果归档到 memory。  
+      3) 人为构造一次“需要回溯旧 tool result”的任务，看看占位提示是否足够指导 agent 去 `memory_read(...)` 取回证据。
+
+      检验标准：压缩后你的 agent 是否还能持续推进任务？当它需要旧证据时，是否能找得到？
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-01-19
+      - 来源：ContextKit（GitHub 项目）
+      - 建议：阅读原文时建议按 “四支柱 → Context dataclass → compress_by_rule（含 memory_path 占位提示）→ compress_by_model → Select（list/grep/read）→ Memory（CRUD）→ tools export/adapters” 的顺序走一遍，并对照 `examples/` 目录理解每个模块的最小用法。
+
+  - type: url
+    title: "原文：context-kit"
+    url: https://github.com/keli-wen/context-kit
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      原文提到的 “thinking/reasoning blocks” 跨 provider 兼容属于实验性支持；不同 provider 的字段名与事件语义可能会随 API 迭代变化。
+      更可迁移的是整体模块划分与压缩策略：用规则清理旧 tool results、把清掉的内容归档到窗外 memory 并留下可检索引用、再用 Select 的 progressive disclosure 按需拉回信息。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) “最小工具箱”解决的是学习与工程的可控性：你可以清楚看到 Select/Write/Compress 各自做什么、在哪里插入 loop，而不是被框架黑箱遮住。  
+      2) `Context` dataclass 把消息历史变成可操作数据结构：更利于压缩、格式转换与跨 provider 迁移。  
+      3) `compress_by_rule` 的关键不是“删”，而是“删旧结果但留引用”：清旧 tool results（可选清 thinking），并把内容归档到 memory，让 agent 需要时能按提示取回。  
+      4) Select 与 Memory 的组合让 agent 能“按需读、把状态写到窗外、再把上下文压回工作台”，从而在长任务里更不容易被上下文噪声拖垮。

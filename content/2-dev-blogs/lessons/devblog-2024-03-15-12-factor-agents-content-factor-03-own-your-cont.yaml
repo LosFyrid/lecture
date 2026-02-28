@@ -1,37 +1,176 @@
 id: devblog-2024-03-15-12-factor-agents-content-factor-03-own-your-cont
-title: "12-factor-agents/content/factor-03-own-your-context-window.md at main · humanlayer/12-factor-agents"
+title: "Own your context window：自定义事件日志格式提升可控性与 token 效率"
 summary: |
-  文章把 agent 的 LLM 输入概括为一句话：在任意时刻你给模型的输入本质是“**到目前为止发生了什么，下一步该做什么**”。LLM 是无状态函数，输出质量取决于输入质量——因此“Everything is context engineering”。
+  这篇 12-factor agents 的短文给出一个非常工程化的提醒：在 agent 里，LLM 的“接口”不是聊天框，而是你每一轮喂给它的 context window。
+  你不一定要沿用标准的 message 列表格式；把执行过程表示成结构化的事件日志（event log），再渲染成更 token/注意力友好的输入格式，往往能显著提升可控性、可调试性与成本效率。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2024-03-15
-      - 来源：HumanLayer
-      - URL：https://github.com/humanlayer/12-factor-agents/blob/main/content/factor-03-own-your-context-window.md
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/HumanLayer/Safety_and_Security/2024-03-15__12-factor-agents-content-factor-03-own-your-context-window-md-at-main-humanlayer__5ebaec8bda.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      很多 agent 框架都会把“上下文”抽象成一串 message（system/user/assistant/tool）。这当然能用，但当任务变长、工具变多、要做错误恢复与审计时，你会遇到两个典型痛点：
+
+      - 你开始不确定：哪些信息正在占用 token？哪些信息在影响模型决策？
+      - 你开始很难改：想换一种组织方式（更结构化、更省 token、更可控）却被既有的 message 形态绑住。
+
+      这节课围绕原文的一个核心主张展开：**“own your context window” 的意思是，你可以（也经常值得）拥有自己的上下文格式，而不必被默认的聊天 schema 限制。**
+
+      读完后希望你能回答：
+
+      1) 在 agent 里，“给 LLM 的输入”本质上是什么？为什么说它是系统的主接口？  
+      2) 标准 message 列表格式的优点与局限分别是什么？什么时候值得改成自定义格式？  
+      3) 把执行过程建模成 event log（事件日志）到底改变了什么：调试、压缩、错误恢复、安全过滤各怎么做？  
+      4) 你可以为自己的 agent 定义哪一组最小事件类型（Event Types），让上下文既可读又可控？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 核心观点：LLM 是无状态函数，你的“接口”是 context window
     body: |
-      - 主题：own your context window、custom context format、event log→prompt、token efficiency、error handling、safety filtering
-      - 要点：
-        - 文章把 agent 的 LLM 输入概括为一句话：在任意时刻你给模型的输入本质是“**到目前为止发生了什么，下一步该做什么**”。LLM 是无状态函数，输出质量取决于输入质量——因此“Everything is context engineering”。
-        - Context 的范围不止 message 列表，还包括：系统指令、检索到的外部文档（RAG）、历史状态/工具调用与结果、跨会话记忆、以及输出的结构化约束。
-        - 关键主张：**你不必使用标准的 message 格式**。标准格式可用，但如果想榨干模型能力，需要拥有把上下文组织成“对你任务最 token/注意力友好”的格式的自由。
-        - 示例：把整个上下文压到一个 user message 里，用 XML/标签式事件块表达（Slack 原始请求、工具 intent、工具结果等），最后显式问 “what’s the next step?”，让模型在你定义的结构里做下一步决策。
-        - 给出一种实现路径：把会话表示为 `Thread{ events: List[Event] }`；每个事件带 `type` 与 `data`；通过 `event_to_prompt` 把事件渲染为 `<event.type> ... </event.type>`，再把 thread 拼成 prompt。这等价于把“对话历史”升级为“事件日志”，你可以自由决定哪些事件保留/怎么压缩/怎么标注。
-        - 这样做的收益（作者列了 5 点）：
-          - 信息密度：结构化呈现更容易让模型抓重点；
-          - 错误恢复：把错误信息以利于修复的格式呈现，并可在错误解决后隐藏/移除失败调用；
-          - 安全：可在进入 LLM 前过滤敏感数据；
-          - 灵活性：可不断试验不同结构（而不是被固定 chat schema 绑死）；
-          - token 效率：同等信息用更少 token 表达。
-        - 也明确“本指南关注如何从今天的模型里榨出更多”，因此刻意不讨论温度/top_p 等参数调优、训练/微调等；核心是：要有自由度去试各种 context 表达与裁剪策略。
+      原文有一句非常值得反复咀嚼的话：
+
+      “在任意时刻，你给 LLM 的输入，本质上是：**到目前为止发生了什么？下一步是什么？**”
+
+      这句话背后有两个工程含义：
+
+      **1) LLM 本身是无状态（stateless）的。**  
+      你不能指望模型“记得上一次调用发生了什么”。它能依赖的，只有你这一轮送进去的输入（再加上它训练时学到的通用知识与能力）。
+
+      **2) context window 是你的主控制面（primary control surface）。**  
+      你把什么放进去、用什么结构放进去、哪些信息被放在“显眼的位置”（例如标题、列表、字段名、固定标签），会强烈影响模型把注意力分配到哪里，以及它下一步会怎么行动。
+
+      所以，这篇文章并不是在讨论“怎么写一句更聪明的 prompt”，而是在讨论：你是否拥有把“发生过的事”组织成更合适输入格式的自由度。
+
+  - type: md
+    title: 什么算 context：不仅是 messages（把范围画清楚）
+    body: |
+      原文明确列出了 context 的“构成清单”。把它翻译成工程语言，大致是：
+
+      - **Prompt / 指令**：system 指令、工具使用规则、输出格式约束。  
+      - **外部资料**：你检索到的文档片段（RAG）、数据库查询结果、网页摘录。  
+      - **历史与状态**：之前的工具调用、返回结果、关键中间决策、已经生成/修改过的 artifacts。  
+      - **跨会话记忆（memory）**：来自其它线程/会话的相关事件或总结（如果你选择把它注入进来）。  
+      - **结构化输出要求**：让模型按 JSON/YAML/表格等结构输出的说明。
+
+      这份清单的重要性在于：它把“上下文管理”从一个抽象词，变成了一组可以各自优化的输入通道。  
+      例如，“工具返回结果太长”与“system 指令太散”都叫“上下文问题”，但工程修法完全不同。
+
+  - type: md
+    title: 标准 message 格式 vs 自定义格式：为什么“改形态”会影响质量与成本
+    body: |
+      大多数 SDK 默认使用“消息列表”来组织上下文：system / user / assistant / tool 的一串对象。
+      这种格式的优势是通用、生态成熟、容易接入。
+
+      但原文指出一个常被忽略的事实：**“能用”不等于“最合适”。**
+
+      当你希望“从今天的模型里榨出更多”时（原文的措辞），上下文的组织方式会直接影响：
+
+      - **token 效率**：同样的信息，用更少 token 表达（更便宜、更快）。  
+      - **注意力效率**：结构更清晰时，模型更容易把注意力放在关键字段上，而不是被噪声淹没。  
+
+      自定义格式的一个常见做法是：把“到目前为止发生的事”压进一个（或少数几个）message 里，用明确的标签或字段描述事件，例如：
+
+      ```text
+      <slack_message>...</slack_message>
+      <list_git_tags>intent: ...</list_git_tags>
+      <list_git_tags_result>tags: ...</list_git_tags_result>
+
+      what's the next step?
+      ```
+
+      这里的关键不是 XML 本身，而是“**事件块 + 明确意图 + 明确提问**”：让模型不需要从一堆散落的对话中推断“现在处于什么阶段、该做什么”。
+
+  - type: md
+    title: Event Log → Prompt：把“对话历史”升级成可控的执行日志
+    body: |
+      原文给出了一个极简但很强的实现路线：把一次任务线程表示为一组事件（events），再把事件“渲染”成模型输入。
+
+      可以把它理解成三层：
+
+      1) **数据层：Thread / Event**  
+         你保存的不是“聊天记录”，而是“发生过的事”。每个 Event 至少有：
+         - `type`：事件类型（例如 `slack_message`、`deploy_backend`、`error`、`human_response`）  
+         - `data`：事件数据（尽量结构化，必要时再 stringify）
+
+      2) **渲染层：event_to_prompt / thread_to_prompt**  
+         你决定每个事件用什么文本形态进入 prompt。典型是：
+         - 用标签包起来（便于模型定位）  
+         - 用 YAML/JSON 表达字段（信息密度高）
+
+      3) **决策层：显式问“下一步”**  
+         原文强调：即便模型能从 tool schema 推断你想要“下一步”，把这句话显式写进模板通常也不吃亏。
+
+      这种做法的工程收益是：你开始“拥有一把剪刀”。因为事件是结构化对象，你可以更自然地做：
+
+      - **压缩与裁剪**：只保留与当前阶段相关的事件；对老事件做 summary 事件替换。  
+      - **错误处理**：把错误作为明确事件写入；并在错误解决后考虑隐藏/移除已解决的失败调用（原文的建议）。  
+      - **安全过滤**：在进入 LLM 之前过滤敏感字段（例如密钥、PII）。  
+      - **可调试性**：事件序列天然就是 trace，你可以回放、对比、写回归用例。
+
+  - type: md
+    title: 例子串讲：一次部署任务的“上下文窗口”如何随事件演化
+    body: |
+      原文用一个非常贴近工程的例子来说明 event log 的好处：从 Slack 的一句请求开始，逐步加入工具调用与结果。
+
+      你可以把它想象成一个“增长的工作台”，而不是一串越来越长的聊天：
+
+      - **初始事件**：Slack 请求（“把最新后端部署到生产”）。  
+      - **工具意图事件**：列出 git tags（`list_git_tags` intent）。  
+      - **工具结果事件**：返回 tags 列表（含版本号、commit、日期）。  
+      - **执行事件**：尝试 `deploy_backend`（带 tag 与环境）。  
+      - **错误事件**：部署失败（连接不上服务）。  
+      - **求助事件**：向人请求更多信息（让人检查服务状态/给更多线索）。  
+      - **人类回应事件**：人回复“不确定发生了什么，能否检查最新 workflow 状态？”  
+
+      这时模型看到的是一串清晰的事件块。它不需要在“长聊天”里猜测发生了哪些工具调用、每次结果是什么、当前卡在哪一步；它可以直接基于事件类型与字段做决策：下一步也许是 `get_workflow_status`，并带上 `workflow_name` 等参数。
+
+  - type: md
+    title: 常见误解与自检：拥有格式自由度，不等于“随便拼字符串”
+    body: |
+      这篇文章的态度非常明确：它不告诉你“最佳格式是什么”，它强调的是“你需要能试一切（try EVERYTHING）的自由度”。
+
+      不过在落地时，有几个容易踩的点也值得提前自检：
+
+      - **自定义格式的语义要稳定**：事件类型、字段名、标签要尽量一致，否则模型会把“格式变化”当作新信号。  
+      - **尽量先结构化，再 stringify**：把关键字段保留成 YAML/JSON，比纯自然语言更利于压缩与过滤。  
+      - **把“下一步”问清楚**：模板末尾的明确提问（what's the next step?）相当于把控制权收束到你希望的决策动作上。  
+      - **不要把敏感信息当成上下文默认值**：拥有格式自由度的同时，也拥有把敏感字段塞进去的能力；因此过滤链路要更前置。  
+
+      这些并不是“为了复杂而复杂”，而是为了让 context window 变成可被工程化治理的接口。
+
+  - type: md
+    title: 练习：为你的 agent 设计一组最小 Event Types
+    body: |
+      目标：把“own your context window”变成一个可以实现、可以迭代的工程动作。
+
+      选一个你正在做（或打算做）的工具型 agent（例如：代码修复、文档问答、部署助手），写下它最小的一组事件类型：
+
+      1) **输入类事件**：用户/外部系统的请求（例如 `user_request`、`ticket_created`）。  
+      2) **工具类事件**：工具意图与工具结果（例如 `search` / `search_result`）。  
+      3) **状态类事件**：你希望显式化的关键状态（例如 `constraints`、`decision`、`artifact_created`）。  
+      4) **异常类事件**：`error` / `retry` / `human_help`。  
+
+      然后尝试写一个 `event_to_prompt` 的渲染模板：你希望每类事件在 prompt 里长什么样？哪些字段需要过滤？哪些事件可以在“问题解决后”被折叠成更短的 summary 事件？
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2024-03-15
+      - 来源：HumanLayer
+      - 建议：阅读时重点抓住三段：1) “what’s happened so far / what’s next step” 的接口观；2) standard vs custom context formats 的对比例子；3) Thread/Event + 渲染函数的代码骨架，并留意作者对 error handling 与 safety filtering 的实践建议。
+
+  - type: url
+    title: "原文：12-factor-agents/content/factor-03-own-your-context-window.md at main · humanlayer/12-factor-agents"
+    url: https://github.com/humanlayer/12-factor-agents/blob/main/content/factor-03-own-your-context-window.md
+    mode: open
 
   - type: md
     title: 时效性提示（可能过时）
     body: |
-      文中示例使用较传统的 chat message 格式；现代 agent 接口（items/events/Responses-style streaming）可能长得不一样。
-      本课关注可迁移原则：你可以自定义上下文表达（event log → prompt）、提升 token/注意力效率，并在进入 LLM 前做过滤/裁剪。
+      原文写作于 2024-03-15，示例围绕“消息列表 vs 自定义格式”展开；而 2025-2026 年一些平台/框架开始更强调 event-stream、items、response events 等更细粒度接口。
+      不过可迁移的核心仍然稳定：把“执行历史”当作结构化数据（events），再把它渲染成对模型更友好的输入；并在进入模型前进行过滤、裁剪与必要的错误折叠。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) “给 LLM 的输入”本质上是：把你认为重要的历史与状态（what happened so far）组织成模型可用的表示，并明确把控制权收束到下一步决策（what’s the next step）。  
+      2) 标准 message 列表的优势是通用与易接入；但当你需要更高的信息密度、更强的可控过滤、更好的可调试性时，自定义格式（尤其是 event log → prompt）会更自然。  
+      3) event log 的关键改变是：你保存的是结构化事件，因此可以做“按事件裁剪/折叠/过滤”，而不必在一坨自由文本里硬做 regex 与摘要。  
+      4) 最小落地路径通常不是“设计完美格式”，而是先定义 10 个以内的 Event Types（输入、工具、状态、异常），写一个稳定的渲染模板，然后在真实任务里迭代字段与压缩策略。

@@ -1,37 +1,189 @@
 id: devblog-2025-06-23-context-engineering-for-agents
-title: "Context Engineering for Agents"
+title: "四策略框架：Write / Select / Compress / Isolate 管理上下文"
 summary: |
-  文章把 LLM 应用比作 OS：LLM 像 CPU，context window 像 RAM；context engineering 就像 OS 的内存管理——在每一步把“刚好够用的信息”塞进有限工作内存里。
+  把 context engineering 从“写 prompt 的技巧”升级成“运行时的输入管理系统”：像操作系统管理 RAM 一样管理 context window。文章给出一个可复用的 4 策略框架（Write / Select / Compress / Isolate），并用 scratchpad、memory、tool routing、summarization、multi-agent、environment/state isolation 等例子说明如何在长任务中控制成本与可靠性。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2025-06-23
-      - 来源：RLanceMartin
-      - URL：https://rlancemartin.github.io/2025/06/23/context_engineering
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/RLanceMartin/Safety_and_Security/unknown-date__context-engineering-for-agents__4796ddb0a5.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      很多 agent 系统的失败，并不是模型不会推理，而是模型在每一步“看到的输入”不合适：该看到的约束没看到，不该看到的噪声看到了，或者看到的信息彼此冲突。
+
+      这篇文章试图回答一个更工程化的问题：**当 context window 像 RAM 一样有限时，我们如何像操作系统一样管理它？**
+
+      带着这些问题读会更有抓手：
+
+      1) context engineering 的工作对象到底是什么：只管 prompt 文本，还是管整个运行时输入（历史、状态、工具、记忆、检索结果）？  
+      2) “写到窗外（Write）”与“选回窗内（Select）”分别解决什么问题？它们为什么经常成对出现？  
+      3) 压缩（Compress）除了“更短”，还需要保留哪些东西，才能让长任务继续跑下去？  
+      4) 隔离（Isolate）为什么既可以是 multi-agent，也可以是 environment/state 的隔离？它们各自的代价是什么？  
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：把“上下文”当作运行时输入，而不是对话历史
     body: |
-      - 主题：Write/Select/Compress/Isolate、scratchpad、memory types、tool selection、RAG for tools、auto-compact、trimming、sandbox/state isolation
-      - 要点：
-        - 文章把 LLM 应用比作 OS：LLM 像 CPU，context window 像 RAM；context engineering 就像 OS 的内存管理——在每一步把“刚好够用的信息”塞进有限工作内存里。
-        - 对 agent 来说，长任务+累积 tool feedback 会迅速推高 token，用长上下文会出现 poisoning/distraction/confusion/clash 等失败；因此作者把常见做法归纳为 4 类策略：**write、select、compress、isolate**。
-        - Write（写到窗外）：把信息持久化到 context window 之外。
-          - Scratchpad：做计划/记要点，既可以是“写文件”的 tool，也可以是运行时 state object 的字段。
-          - Long-term memory：跨会话记忆（反思式写入、周期性综合）在产品里越来越常见。
-        - Select（选回窗内）：在需要时把 scratchpad/记忆/知识选回 context。
-          - 记忆类型借用 COALA：episodic（示例）、procedural（规则/指令）、semantic（事实）。
-          - “总是注入固定文件（rules）”很简单，但当记忆集合变大就需要检索/索引（embedding、knowledge graph 等）；选择做不好会带来“意外注入”（例如把不该出现的位置/隐私信息塞进生成），让用户觉得“context 不再属于我”。
-        - Select（工具层面）：工具太多会让模型困惑（描述重叠、schema 多）。一种应对是对“工具描述”做检索（RAG over tool descriptions），文中引用工作显示工具选择准确率可提升约 3 倍。
-        - Select（知识层面）：代码场景下 embedding 检索会随代码库规模变大而变得不可靠，需要混合 grep/file search、knowledge graph、reranking 等多种机制。
-        - Compress（压缩）：只保留完成任务所需 token。
-          - Summarization：当轨迹跨上百轮或工具输出很重时，用总结压缩（文中例子：超过 **95% context window** 触发 auto-compact）；可用 recursive/hierarchical 总结。
-          - 在架构上也可在“工具边界”或“agent-交接边界”做总结，减少 hand-off token；但想保留关键决策可能需要专门优化甚至微调模型。
-          - Trimming/Pruning：用启发式移除旧消息，或用训练出来的 pruner（如 Provence）。
-        - Isolate（隔离）：把上下文拆开，避免互相污染。
-          - Multi-agent：子 agent 各自 context window，分离关注点，但 token 开销巨大（文中引用：multi-agent 可达 chat 的 **15×**）。
-          - 环境隔离：CodeAgent 输出代码在 sandbox 里运行，只有选定的返回值回传给 LLM；token-heavy 对象可以留在环境 state 里。
-          - State schema：运行时 state object 本身也是隔离机制——只把 messages 字段暴露给 LLM，其它字段更选择性地使用。
+      文章用一个很容易记住的比喻来对齐概念：
+
+      - LLM 像 CPU：负责推理与生成  
+      - context window 像 RAM：是工作内存，有容量上限  
+      - context engineering 像 OS 的内存管理：决定每一步把什么放进 RAM、以什么结构放、何时替换或回收
+
+      这会把“上下文”从单纯的对话历史，扩展成三类更贴近工程的输入成分：
+
+      **Instructions（指令/约束）**  
+      system prompt、规则文件、few-shot 示例、工具使用说明等。它们决定“该怎么做”。
+
+      **Knowledge（知识/事实）**  
+      文档片段、记忆、检索结果、事实清单等。它们决定“关于世界的证据是什么”。
+
+      **Tools（工具反馈）**  
+      工具调用返回的 observation（搜索结果、程序输出、文件内容）。它们决定“环境到底发生了什么”。
+
+      把这三类混在一起不分层，容易出现长上下文的典型失败：错误被写进目标（poisoning）、历史太长导致复读（distraction）、工具太多导致路由失败（confusion）、多来源冲突导致推理偏航（clash）。
+
+  - type: md
+    title: 四策略框架总览：Write / Select / Compress / Isolate
+    body: |
+      文章把当前常见的 agent context engineering 做法归纳为四类。它们不是互斥选项，更像一组可以组合的“输入管理原语”：
+
+      **Write（写到窗外）**  
+      把信息保存到 context window 之外（文件、数据库、向量库、状态对象），让它不会因为窗口溢出而丢失。
+
+      **Select（选回窗内）**  
+      在需要时，把“刚好够用”的信息拉回 context window。这里的难点通常是选择：选错、选多、选漏都会伤可靠性与成本。
+
+      **Compress（压缩）**  
+      保留完成任务所需的最少 token：把长历史压成“可继续执行的状态”，避免把整个执行日志永久塞进输入。
+
+      **Isolate（隔离）**  
+      把上下文拆开，避免互相污染：可以是 multi-agent 的上下文隔离，也可以是把 token-heavy/高风险的状态放在环境或 state schema 的其它字段里，只把小部分暴露给模型。
+
+      你可以把它们看成两条主线的组合：
+
+      - Write ↔ Select：决定信息在“窗外/窗内”之间如何流动  
+      - Compress ↔ Isolate：决定窗内的信息如何变少、变干净、变不互相干扰
+
+  - type: md
+    title: Write：把信息写到窗外（Scratchpad 与长期记忆）
+    body: |
+      **Scratchpad（笔记/草稿）** 是 Write 最直观的落地形式：在任务进行中，agent 需要保存计划、关键中间结果、待办清单；这些东西如果只存在于对话历史里，会随着窗口增长而变得昂贵、也更难保持稳定。
+
+      文章给了两种常见实现方式：
+
+      - 把 scratchpad 做成一个工具：模型调用“写文件/读文件”来记笔记  
+      - 把 scratchpad 做成运行时 state object 的字段：由编排层控制哪些字段在每一步暴露给模型
+
+      除了“单次会话内的笔记”，文章还把 **跨会话的长期记忆（memories）** 视为 Write 的扩展：例如在每轮后做 reflection，并把可复用的偏好/规则写入长期存储；或周期性把多轮反馈综合成更稳定的记忆。
+
+      这一点的工程含义是：Write 不只是“存起来”，更是为 Select 做准备——因为一旦存的东西多了，“怎么选回来”会变成新的瓶颈。
+
+  - type: md
+    title: Select：把“刚好够用”的信息选回窗内（memory / tools / knowledge）
+    body: |
+      Select 是四策略里最容易被低估的一类：很多系统会把固定文件（rules）永远注入上下文，这在小规模时很省事；但一旦记忆与工具集合变大，选择就会变难。
+
+      文章分别从三类对象讲 Select：
+
+      **1) 从 scratchpad / state 里选回**  
+      如果 scratchpad 是工具，agent 可以读；如果 scratchpad 是 state 字段，开发者可以更细粒度地决定“每一步暴露哪些字段”。
+
+      **2) 从 memories 里选回（memory types + selection pitfalls）**  
+      文章引用了常见的记忆类型划分：episodic（示例）、procedural（规则/指令）、semantic（事实）。  
+      选择困难的一个真实风险是“意外注入”：系统从记忆里取回了用户不希望在当前任务出现的信息（例如位置），让用户产生“上下文不再属于我”的不适感。
+
+      这提示我们：memory 的工程问题不止是“召回是否相关”，还包括“是否合适、是否越权、是否可解释”。
+
+      **3) 从 tools/knowledge 里选回（工具路由与 RAG over tool descriptions）**  
+      工具太多时，描述重叠会让模型困惑。文章引用一些工作表明：对工具描述做检索（RAG over tool descriptions）可以显著提升 tool selection 的准确率。
+
+      把 Select 讲清楚的一种方式是问自己：系统是不是把“路由问题”交给了模型？如果是，那就需要把路由的难度缩小（减少候选、结构化描述、两阶段决策），否则会直接体现在稳定性上。
+
+  - type: md
+    title: Compress：压缩不是“更短”，而是“可继续执行的状态”
+    body: |
+      Compress 这一类策略的目标，是让长任务继续跑下去，同时尽量不丢掉关键决策与证据入口。
+
+      文章给出两类常见做法：
+
+      **Context Summarization（总结压缩）**  
+      当对话跨很多轮、工具输出很重时，对历史做总结是一种常见方案。文章引用了一个产品化例子：当对话达到窗口的某个阈值（例如接近 95%）时触发自动总结，把整段 trajectory 压成更短的表示。  
+      它也提到更结构化的总结策略，例如递归式或分层式总结。
+
+      **Context Trimming / Pruning（裁剪/修剪）**  
+      与其让模型总结，也可以用启发式规则裁掉旧消息，或者使用专门训练的“上下文修剪器”。这类方法更像垃圾回收：它不试图“理解并重写”，而是试图把低价值内容移出窗口。
+
+      文章也强调了一个现实难点：如果你的领域需要保留非常具体的事件与决策，summarization 可能需要投入很多工程，甚至需要专门优化（例如用更适合“抓决策”的压缩器）。
+
+  - type: md
+    title: Isolate：隔离不仅是 multi-agent，也可以是 environment / state 隔离
+    body: |
+      当上下文的主要问题变成“互相污染”时，Isolate 往往比继续压缩更有效。
+
+      文章给了三种隔离的典型形态：
+
+      **1) Multi-agent 隔离（subagents）**  
+      把不同子任务分给不同 subagent，每个 subagent 有自己的工具集、指令与 context window。优点是分离关注点；代价是 token 成本与协调成本（文章引用的量级例子是 multi-agent 可能消耗更多 token）。
+
+      **2) 用环境隔离 token-heavy 状态（environment isolation）**  
+      一种做法是让 agent 输出代码，由环境执行；只有选定的返回值回传给模型。这样大量中间对象可以留在环境里，不必反复进入 prompt。
+
+      **3) 用 state schema 做隔离（state isolation）**  
+      state object 本身也可以成为隔离机制：只把 `messages` 等少量字段暴露给模型，其它字段保存在运行时，由编排层选择性注入。
+
+      这三者的共同点是：把“需要长期保存但不需要每步都看见”的内容，从主上下文里移出去，让模型的注意力预算更聚焦。
+
+  - type: md
+    title: 把抽象词放到具体场景里：一次长任务如何同时用到四策略
+    body: |
+      想象你在做一个“长任务 coding agent”：它要在一个仓库里定位 bug、跑测试、改代码、写说明，整个过程可能跨几十到上百轮。
+
+      - 如果每轮都把完整测试日志、完整 diff、完整对话历史塞回模型，context 会快速膨胀（并引入 long-context failure）。  
+      - 你可以把“计划与进度”写到 scratchpad（Write），把“当前要看的文件片段与最近错误栈”按需拉回（Select）。  
+      - 当历史变长时，把已完成阶段压成“决策 + 证据入口 + 下一步”，替换掉旧日志（Compress）。  
+      - 把大对象（日志、图像、构建产物）留在环境或 state 的非 messages 字段里，只在需要时引用（Isolate）。
+
+      这就是文章想表达的核心直觉：context engineering 是一个运行时系统问题，而不是一句更长的 prompt。
+
+  - type: md
+    title: 工程化落地：实践清单（把框架变成你系统里的能力）
+    body: |
+      - 为你的 agent 明确三类上下文：instructions / knowledge / tools，并决定它们分别从哪里来、如何更新。  
+      - 为 scratchpad/state 设计最小字段：目标、硬约束、阶段性结论、未决问题、artifact 引用。  
+      - 给工具做路由：不要默认把所有工具定义长期塞进 prompt；优先做“候选工具集合”的动态选择。  
+      - 给压缩定一个可测试的合同：压缩后是否还能继续执行？是否保留了关键决策与证据入口？  
+      - 设计隔离边界：哪些对象可以留在环境/state 外部字段里，不需要每步进入 messages？
+
+  - type: md
+    title: 常见误区：读完后可以用来做自检
+    body: |
+      - 把“上下文”理解为“聊天记录”，忽略了工具反馈、状态对象与外部记忆也是输入的一部分。  
+      - Write 做了但 Select 没做：存了一堆 memory，但没有可靠的选择策略，导致“意外注入”或噪声回流。  
+      - 工具一次性全加载：把几十个工具定义长期塞进 prompt，让模型在重叠描述里做路由。  
+      - 压缩只追求更短：summary 丢掉了口径、决策与证据入口，后续漂移更难发现。  
+      - 只把 Isolate 理解成 multi-agent：忽略了 environment/state isolation 往往是更低成本的隔离方式。
+
+  - type: md
+    title: 练习：用四策略画出你自己的“上下文数据流图”
+    body: |
+      1) 选一个你要做的 agent 任务，画出它的上下文数据流：哪些信息 Write 到窗外？哪些信息 Select 回窗内？什么时候 Compress？哪些对象被 Isolate 在环境/state 里？  
+      2) 为你的 memory selection 写一个失败用例：构造一个“意外注入”场景，检查系统是否会把不合适的信息塞进当前上下文。  
+      3) 写一个 compaction 验收标准：压缩后能否继续执行、能否回溯证据、能否保持硬约束不漂移。
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2025-06-23
+      - 来源：RLanceMartin
+      - 建议：阅读原文时可以按四策略逐段核对：Write（scratchpad/memories）、Select（memory types + tool routing）、Compress（summarization vs trimming/pruning）、Isolate（multi-agent vs environment/state isolation）。把每个例子翻译成你系统里“哪个模块负责、输入输出是什么”。
+
+  - type: url
+    title: "原文：Context Engineering for Agents"
+    url: https://rlancemartin.github.io/2025/06/23/context_engineering
+    mode: open
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) 这篇文章的核心观点是：context engineering 更像 OS 的内存管理——管理的是运行时输入，不是单次 prompt 文本。  
+      2) Write/Select 经常成对出现：写到窗外解决“别丢”，选回窗内解决“别都放进去”。  
+      3) Compress 的关键不是“更短”，而是保留可继续执行的状态（目标/约束/决策/证据入口/未决问题）。  
+      4) Isolate 有多种形态：multi-agent 是一种，但 environment/state isolation 往往是更低成本的隔离手段。  
+      5) 一个落地检验是：你能否为四策略分别写出一个最小实现与一个失败用例（例如 memory 意外注入、工具路由失败、压缩丢决策）？

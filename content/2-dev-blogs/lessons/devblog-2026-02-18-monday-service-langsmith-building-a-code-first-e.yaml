@@ -1,37 +1,150 @@
 id: devblog-2026-02-18-monday-service-langsmith-building-a-code-first-e
-title: "monday Service + LangSmith: Building a Code-First Evaluation Strategy from Day 1"
+title: "Evals-as-Code：把评估做成工程基础设施（离线回归 + 在线监控）"
 summary: |
-  核心态度：把评估当作 Day 0 需求而不是上线前最后一道门。原因是 agent 的 ReAct 轨迹具有级联效应：prompt 或一次 tool call 的小偏差会把后续轨迹带向完全不同结果。
+  用一个生产团队的实践说明：在多步工具型 agent 里，“评估”更像持续工程资产而不是上线前的最后一关。通过离线回归（Safety Net）与在线监控（Monitor）两层机制，把级联偏差变成可发现、可复现、可回归的信号；再把 evaluator/judge 当作代码管理与部署。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2026-02-18
-      - 来源：LangChain
-      - URL：https://blog.langchain.com/customers-monday
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LangChain/Evaluation_and_Observability/2026-02-18__monday-service-langsmith-building-a-code-first-evaluation-strategy-from-day-1__b65eedb0ae.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      在单轮聊天里，prompt 改错了，你最多得到一条“有点不对”的回复；但在 agent 里，一个小偏差可能会级联成完全不同的轨迹：检索到不同证据 → 选错工具 → 写错状态 → 后续每一步都在错误前提上推进。
+
+      这节课想回答的不是“哪个平台更好用”，而是一些更可迁移的工程问题：
+
+      1) 为什么多步 agent 特别容易出现“级联偏差”？这种偏差在评估上表现成什么形态？  
+      2) 离线回归（offline eval）与在线监控（online eval）分别更擅长抓哪类问题？它们为什么需要同时存在？  
+      3) 评估应该从 Day 0 就开始做，最小可行版本（MVP）长什么样？  
+      4) 如果 evaluator 也是 prompt/LLM 组成的，它如何才能像生产代码一样被 review、回归、部署，而不是“写完就忘”？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：把术语翻译成可落地的组件
     body: |
-      - 主题：evals-driven development、offline vs online eval、golden datasets、LLM-as-judge、multi-turn evaluator、evals as code、CI/CD reconciliation
-      - 要点：
-        - 核心态度：把评估当作 Day 0 需求而不是上线前最后一道门。原因是 agent 的 ReAct 轨迹具有级联效应：prompt 或一次 tool call 的小偏差会把后续轨迹带向完全不同结果。
-        - 他们提出“双支柱”评估架构：
-          - Offline eval（Safety Net）：类似单元测试/回归测试，跑 curated 的 golden datasets，覆盖 groundedness、检索准确、tool-calling、以及特定 edge cases，防止一次 prompt 调整引入其它任务回归。
-          - Online eval（Monitor）：在真实生产 traces 上持续评估业务信号（如自动解决率/containment），做端到端质量监控。
-        - Offline 评估从“可落地的起点”开始：先做约 **30** 条真实（脱敏）IT 工单构成的最小数据集；先做 deterministic smoke checks：
-          - agent 不崩溃/不超时；
-          - 输出符合 schema；
-          - 会话/线程状态正确持久化；
-          - 工具调用链路与输入输出基本合理。
-        - 在 smoke checks 之上引入 LLM-as-judge：用现成 evaluator（如 correctness/groundedness）把 agent 输出与参考答案对比；随着系统复杂度上升，再把“单一正确率”拆成更细的信号（例如每条事实是否可追溯到 KB、冲突策略、guardrails 等）。
-        - 为了加速迭代，他们把评估跑成并行 pipeline，形成显著加速：反馈循环从 **162s → 18s（8.7×）**，让“几百条样本的回归”从小时级变成分钟级。
-        - Online eval 的关键是 multi-turn：很多成功不是某一条回复，而是整段对话是否把用户带到解决；因此用 multi-turn evaluator 对完整 thread 打分（满意度、语气、目标达成等），并通过“inactivity window（会话多长时间不活跃算结束）”来决定何时评估；再用 sampling rate 控成本。
-        - Evals as Code（EaC）：把“judges/评估提示”写成版本控制的 TypeScript 对象（包含 extractionFields/模型配置/system prompt/human prompt），让它像生产代码一样走 PR review 与 CI/CD。
-        - 部署时做 reconciliation loop（可迁移的 infra 思路）：
-          - Sync：把本地 prompt 定义推到平台 registry；
-          - Reconcile：对比本地规则与线上激活规则，自动更新/创建；
-          - Prune：删除代码库里已不存在的“僵尸评估/提示”。
-        - 总结出的可迁移实践：评估要拆“离线回归 + 在线监控”；多轮对话要用多轮评估；评估逻辑要代码化并可持续部署；并行化评估 runner 是提升迭代速度的直接杠杆。
+      **ReAct agent（为什么会“级联”）**  
+      ReAct 可以理解为一种常见的 agent loop：模型在每一步交替进行“推理/计划（Reason）”与“行动（Act）”。行动通常是工具调用（检索、读写、API 操作），工具返回再进入下一步推理。  
+      因为后一步依赖前一步的 observation，一次小偏差就可能把后续轨迹带偏，这就是文章反复强调的 cascade。
+
+      **offline eval（离线回归 / Safety Net）**  
+      更像单元测试/回归测试：在受控样本集上稳定复现问题，防止“一次 prompt 调整把别的能力弄坏”。它的价值是可复现、可对比、可在 CI 里跑。
+
+      **online eval（在线监控 / Monitor）**  
+      更像生产监控：在真实流量的 traces 上持续抽样评估，用来捕捉离线样本覆盖不到的输入分布变化、长尾用法和真实业务信号（例如自动解决率/转人工率）。
+
+      **LLM-as-judge（语义评估器）**  
+      用一个（可能更强/更稳）的模型来评分输出质量。它适合评价“是否有帮助、是否 grounded、语气是否合适”等难以用确定性规则表达的维度；但它也需要被测试与治理（否则会把评估噪声当成能力波动）。
+
+      **multi-turn evaluator（多轮评估）**  
+      对 agent 来说，“好坏”常常不在单条回复，而在整段对话是否把用户带到解决。多轮评估就是把一个 thread 当作评估对象，而不是只看最后一句话。
+
+      **evals-as-code（评估即代码）**  
+      把 evaluator（包括 prompt、提取字段、模型配置、打分逻辑）放进代码仓库，走 PR review、版本控制、CI/CD 部署。它解决的是“评估逻辑也会迭代”的现实。
+
+  - type: md
+    title: 背景：为什么他们把评估当作 Day 0 需求
+    body: |
+      原文来自 monday.com 团队的客座分享：他们在做面向企业服务场景的“AI service workforce”（一组可定制的服务 agent），底层是 LangGraph + ReAct 形态，既会读知识库（KB），也会调用工具执行动作。
+
+      他们的出发点很直接：如果把评估当作“最后一道门”，等到 Alpha 用户反馈问题时，系统已经在生产里被真实输入空间冲击过了；更糟的是，在多步轨迹里，错误可能不是“最后回答错了”，而是“中间某一步偏了一点点”，最后才显现。
+
+      因此他们从 Day 0 就把评估嵌进开发循环，并围绕两个支柱搭体系：离线回归（Safety Net）与在线监控（Monitor）。
+
+  - type: md
+    title: 支柱 A：离线回归（Safety Net）从最小“冒烟测试”开始
+    body: |
+      一个常见误解是：离线评估一上来就要“很完备”。原文的实践恰好相反：先选一个能跑起来的起点，再逐步加覆盖面。
+
+      他们的起点是一组约 **30 条**真实但脱敏的已解决 IT 工单，覆盖常见类别（例如身份/权限、VPN 与网络、设备/系统支持）。注意这里的设计思想：
+
+      - 不是追求“代表整个世界”，而是追求“先覆盖最常见的路径，让系统有一张安全网”。  
+      - 先把“系统是不是跑得通”测稳，再把“内容好不好”做语义评估。
+
+      在第一版 suite 里，他们故意把检查做得很朴素，主要是确定性的 smoke checks：
+
+      - **运行健康**：端到端能跑完，不 crash、不 timeout。  
+      - **输出形状**：返回符合预期 schema/format（甚至在评价内容之前先把结构测稳）。  
+      - **状态与持久化**：thread/session 创建正确，关键状态能写进应用数据库。  
+      - **工具链路基本合理**：需要的工具被调用，输入大体合理，执行无明显错误。
+
+      有了这个“不会一脚踩空”的地基后，他们再引入 LLM-as-judge：用开箱 evaluator（文中提到 OpenEvals 的 correctness）把 agent 输出与参考输出进行语义比较。
+
+      随着覆盖面扩大，他们把“一个 correctness 分数”拆成更细的信号，用来定位偏差来源，例如：
+
+      - **知识库 grounding / citations**：每条事实是否能追溯到 KB？  
+      - **冲突处理**：当 KB 条目冲突或政策因地区/时间不同而变化时，agent 是否会澄清或选择最新适用项？  
+      - **guardrail 顺序**：安全/政策类 guardrails 是否在合适阶段触发（例如在生成最终答复前而不是事后）？
+
+      你可以把这一步理解为：先让评估回答“有没有跑通”，再让评估回答“跑通了但哪里不对”。
+
+  - type: md
+    title: 让迭代变快：为什么他们把反馈循环从 162s 压到 18s
+    body: |
+      原文里一个很具操作性的点是：评估体系只有“能在开发节奏里跑起来”才算基础设施。
+
+      他们报告的结果是：通过并行化评估运行，把反馈循环从 **162 秒**降到 **18 秒**（约 **8.7x** 提速），从而可以在几分钟内跑完“数百条样本”的回归，而不是把回归拖成小时级的手工流程。
+
+      你不需要复制他们的具体实现细节也能迁移这个思想：  
+      agent 迭代往往需要频繁试 prompt、试检索策略、试工具路由；如果每次改动都要等很久才知道有没有回归，团队会自然倾向于“少改、靠感觉”。快速反馈把迭代方式从“感觉驱动”拉回“证据驱动”。
+
+  - type: md
+    title: 支柱 B：在线监控（Monitor）把“多轮成功”当作评估对象
+    body: |
+      离线回归再认真，也很难覆盖真实生产里的输入分布：用户表达方式多样、对话会变长、工具会遇到权限与偶发错误。
+
+      因此他们把在线评估建立在生产 traces 之上，并且强调多轮（multi-turn）：
+
+      - 很多客服/工单场景的“成功”不是某一句答复，而是整段对话是否把用户带到解决（或明确转人工）。  
+      - 评估对象因此应是 thread，而不是单条 message。
+
+      为了让在线评估在成本上可控，他们使用了两个很常见、也很通用的设计：
+
+      - **inactivity window**：用“多久没有新消息”来判断一个会话何时算结束，避免半截对话被过早评分。  
+      - **sampling rate**：不是全量评估所有对话，而是按比例抽样（或对某些风险/长尾子集加权抽样），在成本与覆盖之间做平衡。
+
+  - type: md
+    title: Evals-as-Code：把 judge 当作生产代码来管理与部署
+    body: |
+      原文最值得借鉴的一点是：他们把 evaluator（judge prompt）也当成会演进的生产资产来治理，而不是把它写在平台 UI 里就结束。
+
+      他们把“judge”定义成结构化的 TypeScript 对象（包含变量、模型配置、需要抽取的字段、system/human prompt 等），好处是：
+
+      - evaluator 进入版本控制与 PR review；  
+      - evaluator 自己也可以有离线回归（先保证 judge 稳，再让 judge 去评生产流量）；  
+      - 与 IDE/AI 编程工具的协作更自然（在同一个 repo 里迭代，而不是在平台里点来点去）。
+
+      在部署上，他们实现了一个很像 GitOps 的闭环：用 CI/CD 跑一个部署命令，把 repo 里的定义同步到线上；并在合并 PR 时执行一个“三步对账循环”：
+
+      - Sync：把本地定义推到线上 registry  
+      - Reconcile：对比本地与线上规则，自动更新/创建  
+      - Prune：清理代码库里已删除但线上还存在的“僵尸评估”
+
+      即使你不用 LangSmith，这个模式仍然可迁移：**评估逻辑的 Source of Truth 在代码库；线上只是运行时副本；每次发布都做同步与对账**。
+
+  - type: md
+    title: 练习：为你的 agent 设计一套最小“离线 + 在线”评估闭环
+    body: |
+      选一个你熟悉的工具型 agent（例如文档助理、客服工单、日历助理、coding agent），写下你的最小评估闭环：
+
+      1) **离线回归数据集**：先写 20–50 条“能代表常见路径”的样本（可以脱敏/合成，但要包含真实失败模式）。  
+      2) **第一层确定性检查**：至少列出 3 条 smoke checks（结构/schema、状态持久化、工具链路健康）。  
+      3) **第二层语义评估**：用 LLM-as-judge 评 2 个维度（例如 groundedness、冲突处理/澄清策略、语气/规范）。  
+      4) **在线监控策略**：定义 inactivity window 与抽样策略；决定你要看哪些业务信号（自动解决率、转人工率、用户打断率等）。  
+      5) **Evals-as-code 计划**：把 judge prompt/配置放进 repo，写一个“同步到线上”的最小脚本/命令，并规定它进入 CI 的时机。
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-02-18
+      - 来源：LangChain（客座：monday.com）
+      - 建议：阅读时可以沿着“两层评估 + 一条部署闭环”的主线看细节：离线回归如何从 deterministic smoke checks 起步、在线监控为何强调 multi-turn、以及 evals-as-code 的同步/对账循环为何能让评估长期可维护。
+
+  - type: url
+    title: "原文：monday Service + LangSmith: Building a Code-First Evaluation Strategy from Day 1"
+    url: https://blog.langchain.com/customers-monday
+    mode: open
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) 多步 agent 的“级联偏差”通常来自依赖链：早一步的检索/工具结果变了，后续每一步都在新前提上推进；所以评估不能只看最终答案，还要能在回归样本上稳定复现整条轨迹的关键节点。  
+      2) offline eval 擅长做回归门禁与定位；online eval 擅长捕捉真实分布变化与业务信号。两者形成闭环：生产 traces 进入数据集，数据集反过来保护迭代不回退。  
+      3) Day 0 的最小版本可以很小：一组 30 条左右的常见样本 + 3–4 条 deterministic smoke checks + 一个开箱 LLM judge；先让“安全网”存在，再逐步加覆盖面与维度。  
+      4) 把 evaluator 当作代码管理的关键在于：它本身也会漂移与出 bug；只有进入版本控制、回归与部署闭环，评估才会成为长期资产，而不是一次性工程。
+

@@ -1,35 +1,152 @@
 id: devblog-2026-02-17-improving-deep-agents-with-harness-engineering
-title: "Improving Deep Agents with harness engineering"
+title: "Harness Engineering：用 traces + middleware 提升可靠性（不换模型）"
 summary: |
-  目标与结果：作者把“harness（安全带）工程”当作主要杠杆，在**不换模型**（固定 `gpt-5.2-codex`）情况下，把 deepagents-cli 在 Terminal Bench 2.0 的成绩从 **52.8 → 66.5**（从 Top 30 到 Top 5）。核心观点：模型是“尖刺状智能”，harness 负责把它塑形成你要的行为分布（性能/成本/延迟/可靠性）。
+  这篇文章给出一个很“工程结论优先”的案例：LangChain 团队只改 harness、不换模型（固定 `gpt-5.2-codex`），让 deepagents-cli 在 Terminal Bench 2.0 的分数从 52.8 提升到 66.5（从 Top 30 到 Top 5）。原文把 harness engineering 定义为“围绕模型搭建系统与工具，以塑形模型的尖刺状智能”，并给出一套可复制的方法：用 traces 做规模化失败分析，把分析流程做成 skill，围绕三类旋钮（system prompt、tools、middleware）小步迭代；关键改动集中在 self-verification（build→verify→fix）、doom loop 检测与 reasoning budget 分配（reasoning sandwich）。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2026-02-17
-      - 来源：LangChain
-      - URL：https://blog.langchain.com/improving-deep-agents-with-harness-engineering
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LangChain/Agents_and_Tooling/2026-02-17__improving-deep-agents-with-harness-engineering__f51c3a95aa.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      很多团队在 agent 效果不稳时，第一反应是“换更强的模型”。这篇文章的反例非常直接：他们保持模型不变，只改 harness，就获得了大幅提升。
+
+      这节课希望你读完能回答：
+
+      1) harness engineering 到底在工程上改什么？哪些旋钮是可控且可复现的？  
+      2) 为什么 traces 能成为改进 agent 的主要反馈信号？怎么避免“靠感觉改 prompt”？  
+      3) self-verification 为什么会显著改善 coding agent？它具体要验证什么？  
+      4) doom loop（厄运循环）在 trace 里通常长什么样？middleware 该如何干预而不过度扰动？  
+      5) reasoning budget 为什么要分配而不是拉满？“reasoning sandwich”解决的是什么权衡？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：harness、traces、middleware 与 doom loop
     body: |
-      - 主题：harness engineering、agent traces、self-verification、doom loop、middleware/hooks、reasoning budget、benchmark iteration、Terminal Bench
-      - 要点：
-        - 目标与结果：作者把“harness（安全带）工程”当作主要杠杆，在**不换模型**（固定 `gpt-5.2-codex`）情况下，把 deepagents-cli 在 Terminal Bench 2.0 的成绩从 **52.8 → 66.5**（从 Top 30 到 Top 5）。核心观点：模型是“尖刺状智能”，harness 负责把它塑形成你要的行为分布（性能/成本/延迟/可靠性）。
-        - 他们刻意把可优化空间压缩为三类旋钮：**System Prompt、Tools、Middleware**（围绕模型调用与 tool 调用的 hooks/中间件），而不是在无穷多“技巧”里迷路。
-        - 外循环方法论：用 tracing（记录输入/输出/工具调用序列+token/延迟等）做规模化错误分析；并把“trace analyzer”做成可复用的 agent skill：拉取实验 traces → 并行启动多个分析 agents → 主 agent 汇总失败模式与修改建议 → 落到对 harness 的小步迭代。作者把它类比为 boosting：盯着错题改。
-        - 重要提醒：trace 驱动的改动很容易过拟合某些任务；需要（可选）人类在环检查建议是否是“投机取巧”，避免在其他任务上回归。
-        - 关键改动 1：强制进入 **Build–Verify** 闭环。常见失败是 agent 写完方案、浏览一眼代码、觉得“看起来对”就停；而正确的 agentic coding 需要把“测试/验证”变成默认步骤，给模型明确的工作流提示：
-          - Planning & Discovery：读任务、扫代码库、先想“怎么验证正确性”再定计划；
-          - Build：围绕验证目标实现；必要时补测试，覆盖 happy path + edge cases；
-          - Verify：跑测试、读完整输出、对照原始需求（不是对照自己写的代码）；
-          - Fix：基于失败信号迭代修复。
-        - 关键改动 2：对“doom loop（厄运循环）”做工程化干预：模型一旦选定错误路线会反复在同一文件做细微改动（一些 trace 中同文件 10+ 次）。他们用 `LoopDetectionMiddleware` 通过 tool hooks 统计每个文件的 edit 次数，超过阈值 `N` 就往上下文里注入提示（“考虑重新思考方案”）以打断短视循环。
-        - 关键改动 3：推理预算（reasoning effort）要分配而不是一刀切。Reasoning 过高会显著增加 token/time 并触发 benchmark 超时；他们测试到“全程 xhigh”得分 **53.9%**，而“全程 high”能到 **63.6%**。经验性策略是 “reasoning sandwich”：在**规划**与**最终验证**阶段用更高推理，在实现阶段用较低推理，从而兼顾质量与超时风险。
-        - 总结出的可迁移原则：
-          - harness 的本质是“替 agent 做 context 工程”：把环境/约束/评测标准/最佳实践明确交付给模型；
-          - 用 tracing 把“模型推理问题”和“工具/指令缺失问题”一起定位；
-          - 对已知弱点加短期护栏（loop detection、强制验证），并预期随着模型提升这些护栏会逐步退场；
-          - 换模型前，先把“迭代 harness 的闭环”跑起来。
+      **Harness（安全带/编排层）**  
+      原文把 harness 的目标说得很清楚：把模型“尖刺状”的智能塑造成你关心的行为分布，优化任务成功率、token 效率、延迟等。
+
+      **Harness engineering**  
+      不是一个 prompt 技巧，而是一种系统工程：你在构建围绕模型的工具、流程、约束与反馈回路。
+
+      **Traces（轨迹）**  
+      原文用 traces 来规模化理解失败模式：模型是黑箱，但我们能看到输入/输出、工具调用序列、token/延迟/成本等指标，于是可以做“错题本式”改进。
+
+      **Middleware（中间件/钩子）**  
+      原文把 middleware 视为“围绕模型调用与工具调用的 hooks”。它可以记录统计、注入提示、或执行额外校验。
+
+      **Doom loop（厄运循环）**  
+      指 agent 一旦走上错误路线，会在同一处反复做小修小补（例如同一个文件 edit 10+ 次），但整体不收敛。
+
+  - type: md
+    title: 实验设置：压缩优化空间，只改三类旋钮
+    body: |
+      原文的实验对象是 deepagents-cli（coding agent），评测用 Terminal Bench 2.0。它有 89 个跨领域任务（机器学习、debugging、生物等）。
+
+      他们用 Harbor 编排运行：起 sandbox（示例用 Daytona）、跑 agent loop、做验证与计分；并把每次运行的行为与指标存到 LangSmith（包含 token、延迟、成本）。
+
+      关键策略是“刻意压缩优化空间”：agent harness 的旋钮很多（skills、subagents、记忆系统……），但他们只聚焦三类：
+
+      - system prompt  
+      - tools  
+      - middleware（围绕模型/工具调用的 hooks）
+
+      这样能避免在“无限技巧”里迷路，也更利于把改动归因到明确机制上。
+
+  - type: md
+    title: 外循环方法：把 trace 分析做成 skill（像 boosting 一样盯错题改）
+    body: |
+      原文把 trace 分析做成可重复流程，并直接把它封装成 Agent Skill（“Trace Analyzer Skill”）。
+
+      它的外循环大致是：
+
+      1) 拉取实验 traces  
+      2) 并行启动多个分析 agents → 主 agent 汇总失败模式与修改建议  
+      3) 聚合反馈，对 harness 做有针对的小步改动（可选人类复核，避免投机取巧/过拟合）
+
+      原文把它类比为 boosting：专注于上一轮的错误样本来改系统。  
+      这条路径的可迁移价值在于：它把“改 agent”变成一个可工程化的反馈回路，而不是靠灵感调参。
+
+  - type: md
+    title: 改动 1：Build → Self-Verify → Fix（让验证成为默认习惯）
+    body: |
+      原文观察到最常见的失败模式之一是：agent 写完方案，重新读一遍自己的代码，觉得“看起来 OK”，就停了——但它没有跑测试，也没有用真实信号验证正确性。
+
+      他们把“自我验证”作为系统提示的一部分，明确引导 agent 进入 build-verify loop：
+
+      - Planning & discovery：读任务、扫代码库、先想“怎么验证”  
+      - Build：按计划实现，并提前考虑验证  
+      - Verify：跑测试、读完整输出、对照原始需求（不是对照自己写的代码）  
+      - Fix：根据失败信号回到 spec 修复
+
+      这条改动的核心不是“更聪明的推理”，而是“更可靠的反馈信号”：测试输出能让 agent 进行 hill-climb，而不是停在第一版 plausible solution。
+
+  - type: md
+    title: 改动 2：LoopDetectionMiddleware（对 doom loop 做短期工程干预）
+    body: |
+      原文指出：agent 一旦决定了错误计划，容易变得近视，不断在同一处做微小变体（doom loop）。
+
+      他们的做法是用 `LoopDetectionMiddleware` 统计每个文件的 edit 次数：当同一文件 edit 超过阈值 N，就往上下文注入提示（例如“考虑重新思考方案”）来打断循环。
+
+      原文强调：这是一种针对“当下模型缺陷”的启发式护栏。随着模型变强，这类护栏可能逐步不再需要；但在当下，它能显著减少无效重试与时间浪费。
+
+  - type: md
+    title: 改动 3：Reasoning budget 分配（reasoning sandwich）
+    body: |
+      原文的一个非常实用观察是：推理预算不是越高越好，尤其在 benchmark 有超时限制时。
+
+      `gpt-5.2-codex` 有多档 reasoning 模式（low/medium/high/xhigh）。  
+      原文发现：
+
+      - 全程 `xhigh` 反而得分较差（53.9%），主要因为超时/成本暴涨  
+      - 全程 `high` 能到 63.6%
+
+      他们采用的经验策略是 “reasoning sandwich”：在规划与最终验证阶段用更高推理（xhigh），实现阶段用较低推理（high），以同时兼顾“想清楚 + 写对 + 不超时”。
+
+      这条经验对你做 agent 工程很可迁移：很多任务并不需要每一步都开最大推理；把预算留给“最容易决定成败的阶段”更划算。
+
+  - type: md
+    title: 原文的实践总结：harness 设计是一套可迁移原则
+    body: |
+      原文最后给了一组“不会过时太快”的原则（用我们的语言重述）：
+
+      - **替 agent 做 context engineering**：把环境、约束、评测标准、最佳实践显式交付给模型，减少“因为不知道而走错路”。  
+      - **强提示验证**：模型偏向第一版可行解；必须被提示去跑测试、对照 spec、修正错误。  
+      - **tracing 是改进信号**：同时调试“工具链路”与“推理链路”，避免只改 prompt。  
+      - **短期护栏有价值**：在模型不完美的当下，loop detection、强制验证等启发式能提升可靠性；未来可能退场。  
+      - **harness 需要适配模型**：同一套 harness 迁移到别的模型未必最优，仍需跑改进循环。
+
+  - type: md
+    title: 练习：为你的 agent 建一条最小 harness 改进循环
+    body: |
+      选一个你正在做的工具型 agent，做一个“最小可复现”的 harness 改进循环：
+
+      1) 先固定模型与任务集（10-30 个任务足够），记录 baseline。  
+      2) 落 trace：至少记录工具调用序列、关键输入/输出、token/延迟、失败原因标签。  
+      3) 写一个最小 error taxonomy：比如“没跑测试/跑错命令/陷入循环/理解错需求/超时”。  
+      4) 只改一个旋钮做 A/B：system prompt（加入 build-verify）、或一个 middleware（loop detection）、或 reasoning budget 分配。  
+      5) 复测并看回归：有没有改善某类失败？有没有在其他任务上变差（过拟合）？
+
+      目标不是一次就把分数拉满，而是让“改进 agent”这件事变成你可以持续运行的工程流程。
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-02-17
+      - 来源：LangChain
+      - 建议：阅读原文时建议重点核对三组关键数字与机制：1) 52.8 → 66.5（只改 harness，模型固定 gpt-5.2-codex）；2) doom loop 在 traces 里的形态与 LoopDetectionMiddleware 的干预方式；3) reasoning budget 的权衡（xhigh 53.9% vs high 63.6%）与 reasoning sandwich 的阶段化策略。
+
+  - type: url
+    title: "原文：Improving Deep Agents with harness engineering"
+    url: https://blog.langchain.com/improving-deep-agents-with-harness-engineering
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      Terminal Bench 版本、deepagents-cli 的默认 prompt/tools/middleware、以及特定模型（gpt-5.2-codex）的 reasoning 档位命名可能会随时间变化。
+      更可迁移的是方法论：固定模型与任务集，用 traces 做规模化失败分析，压缩优化空间到少数旋钮，做小步 A/B，并用 self-verification、loop detection、reasoning budget 分配这类“harness 级机制”塑形行为分布。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) harness engineering 改的是系统层旋钮（prompt/tools/middleware/执行流），目标是塑形模型的行为分布，而不是依赖模型一次性变强。  
+      2) traces 让你能规模化定位失败模式并做“错题本式”改进；把 trace 分析封装成 skill/流程能显著提升迭代速度。  
+      3) self-verification 的关键是用外部信号（测试输出、spec 对照）让 agent hill-climb；doom loop 检测用中间件把“反复无效编辑”变成可干预事件。  
+      4) reasoning budget 需要分配：全程拉满容易超时；planning 与 verification 更吃推理，实现阶段未必需要最大档，这就是 reasoning sandwich 的直觉。

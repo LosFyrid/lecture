@@ -1,39 +1,134 @@
 id: devblog-2026-02-10-the-two-patterns-by-which-agents-connect-sandbox
-title: "The two patterns by which agents connect sandboxes"
+title: "Sandbox 集成两种架构：Agent-in-sandbox vs Sandbox-as-tool"
 summary: |
-  TL;DR：越来越多 agent 需要一个“工作电脑”（装包、跑代码、访问文件），但必须隔离以避免触碰宿主机凭据/文件/网络；文章总结了两种主流架构，把“agent 跑在哪里”作为分界。
+  这篇文章讨论的是“agent 需要一台隔离的工作电脑”时，架构上怎么接 sandbox：不是要不要 sandbox，而是 agent 跑在边界的哪一侧。原文总结两种主流模式：Pattern 1（Agent IN Sandbox）把 agent 本体跑在容器/VM 里，通过网络与外部通信；Pattern 2（Sandbox as Tool）把 agent 跑在本地/自家服务器，只把代码执行当成远程 tool 调用。两者的权衡集中在：迭代速度、secrets 放置、agent state 与执行环境的耦合程度、以及通信/延迟成本。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2026-02-10
-      - 来源：LangChain
-      - URL：https://blog.langchain.com/the-two-patterns-by-which-agents-connect-sandboxes
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LangChain/Agents_and_Tooling/2026-02-10__the-two-patterns-by-which-agents-connect-sandboxes__3a452db649.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      越来越多 agent 需要一个 workspace：能装包、跑代码、访问文件，像一台“工作电脑”。但这台电脑必须隔离，否则 agent 一旦被 prompt injection 诱导，就可能触达宿主机的凭据、文件与网络。
+
+      这篇文章把问题收敛成一个很工程化的分界：**agent 跑在哪里？**  
+      在 sandbox 里面，还是在 sandbox 外面把 sandbox 当成一个工具？
+
+      读完后你应该能回答：
+
+      1) Agent IN Sandbox 与 Sandbox as Tool 的数据流分别是什么？  
+      2) 两种模式下，API keys/secrets 通常放在哪里？为什么这是重要差异？  
+      3) 迭代速度、通信基础设施、网络延迟、以及 state 持久化分别如何影响选择？  
+      4) 什么时候你会更看重“本地=生产”的一致性，什么时候更看重“编排层与执行层解耦”？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：本文讨论的 sandbox 是“完整电脑”
     body: |
-      - 主题：sandbox integration patterns、agent runtime placement、security boundary、secrets handling、iteration speed、parallel sandboxes
-      - 要点：
-        - TL;DR：越来越多 agent 需要一个“工作电脑”（装包、跑代码、访问文件），但必须隔离以避免触碰宿主机凭据/文件/网络；文章总结了两种主流架构，把“agent 跑在哪里”作为分界。
-        - Pattern 1：**Agent in Sandbox**（agent 本体运行在沙箱里，通过网络与外部系统通信）。
-          - 形态：把 agent framework 打进 Docker/VM 镜像，在沙箱内部跑一个 HTTP/WebSocket server，对外提供交互接口。
-          - 优点：与本地开发形态一致；agent 与执行环境耦合紧密；直接文件系统访问/环境状态维护更自然。
-          - 代价与风险：
-            - 需要额外通信基础设施（会话管理、错误处理等）；
-            - API keys 必须在沙箱内，若沙箱被攻破或发生 prompt injection 外泄，风险更大；
-            - 更新需要重建镜像/部署，迭代慢；
-            - “权限同一化”：如果 agent 整体都在沙箱里，agent 代码与 LLM 生成代码往往共享同一权限边界，难以做到“某些 tool 权限高于 LLM 生成代码”。
-        - Pattern 2：**Sandbox as Tool**（agent 本体在本地/自家服务器，只把执行当作远程 tool 调用）。
-          - 形态：agent 生成要运行的代码/命令后，通过 API 调用远程沙箱执行（E2B/Modal/Daytona/Runloop 等）；从 agent 视角，沙箱就是一个 tool。
-          - 优点：
-            - agent 逻辑更新快（无需重建镜像）；
-            - API keys 留在沙箱外，分离更清晰；
-            - agent 状态（历史/记忆/推理链）与执行环境解耦，沙箱崩了不丢状态；可更换沙箱后端；
-            - 可并行起多个沙箱；只在需要执行时付费。
-          - 代价：网络延迟；需要 stateful session 才能减少反复安装/文件传输的开销。
-        - 选型建议（可迁移）：
-          - 环境强耦合、追求“本地=生产”、或 SDK 已替你搞定通信 → 倾向 Pattern 1；
-          - 需要快速迭代、重视 secrets 外置、重视状态/执行分离 → 倾向 Pattern 2。
+      原文特别说明：它讨论的是给 agent 一台“完整电脑”的 sandbox（Docker 容器或 VM 这种完整执行环境）。
+
+      它不讨论两类更轻的 sandbox：
+
+      - **进程级 sandbox**（例如 bubblewrap）  
+      - **语言级 sandbox**（例如 Pyodide）
+
+      这点很重要：完整电脑 sandbox 通常意味着你要处理文件系统、包管理、进程树、网络与会话恢复，因此架构模式的差异会更显著。
+
+  - type: md
+    title: Pattern 1：Agent IN Sandbox（agent 本体跑在沙箱里）
+    body: |
+      **形态**  
+      你把 agent framework 打进 Docker/VM 镜像，在 sandbox 内启动 agent，并通过网络（HTTP/WebSocket）从 sandbox 外给它发消息。
+
+      **收益（原文总结）**
+
+      - 更像本地开发：你在终端本地怎么跑 agent，在 sandbox 里就怎么跑（“本地=生产”的镜像感更强）。  
+      - agent 与执行环境耦合紧密：agent 直接访问 sandbox 文件系统，维护复杂环境状态更自然（依赖、缓存、文件变更都在一个地方）。
+
+      **代价与风险（原文强调的点）**
+
+      - 需要跨边界通信基础设施：如果供应商 SDK 没替你做，你要自己实现 WebSocket/HTTP、session 管理与错误处理。  
+      - API keys 往往需要在 sandbox 内：因为 agent 在 sandbox 内发起推理与工具调用，这会带来“沙箱被攻破就可能外泄凭据”的风险（原文也提到一些 provider 在做 secret vault 来缓解）。  
+      - 更新慢：改 agent 逻辑通常要重建镜像并重新部署。  
+      - sandbox 需要先 resume 才能工作：常需要额外逻辑确保 agent 活跃时 sandbox 已启动。  
+      - IP 外泄风险更高：agent 的代码与 prompts 在 sandbox 内更容易被整体导出。  
+      - 权限同一化：原文引用评论指出，agent 在 sandbox 内时，很难让“某些工具的权限高于 LLM 生成代码”——因为安全边界包住了整个 agent；而如果是 sandbox-as-tool，你可以更容易把高权限能力留在沙箱外、只给 LLM 生成代码一个受限执行面。
+
+  - type: md
+    title: Pattern 2：Sandbox as Tool（agent 在外面，沙箱是远程执行工具）
+    body: |
+      **形态**  
+      agent 跑在你的机器或服务器上；当它需要执行代码时，通过 API 调用一个远程 sandbox（例如 E2B、Modal、Daytona、Runloop 等）。对 agent 来说，sandbox 就是一个工具。
+
+      **收益（原文总结）**
+
+      - 迭代快：更新 agent 逻辑不需要重建容器镜像。  
+      - API keys 留在沙箱外：只有执行发生在隔离环境里，secrets 的暴露面更小。  
+      - 分离关注点更清晰：agent state（历史、记忆、推理链）与执行环境解耦；sandbox 崩了不一定丢 state，也更容易切换 sandbox 后端。  
+      - 可并行多个 sandbox：原文引用评论指出，远程沙箱更容易做并行执行。  
+      - 按需付费：只在需要执行时起沙箱、付沙箱成本，而不是为整个 agent runtime 付费。  
+      - 为未来的异构部署做准备：原文还提到一个动机——未来可能把 harness（推理编排）跑在 GPU 机器上，而 sandbox 仍是另一个运行时；两者解耦更自然。
+
+      **代价**
+
+      - 网络延迟：每次执行都跨网络边界，很多小执行会累积成本。  
+      - 需要 session 才能降低开销：许多 sandbox provider 提供 stateful sessions（文件/变量/包在同一 session 内持久化），以减少反复安装与传输带来的 round trips。
+
+  - type: md
+    title: 如何选择：按“耦合度、迭代速度、secrets 边界”做决策
+    body: |
+      原文给出了一组非常实用的选择条件：
+
+      **更偏 Pattern 1（Agent IN Sandbox）当：**
+
+      - agent 与执行环境强耦合（需要持久访问特定库或复杂环境状态）  
+      - 你希望生产尽量镜像本地开发  
+      - 你的 provider SDK 已经替你解决了跨边界通信层
+
+      **更偏 Pattern 2（Sandbox as Tool）当：**
+
+      - 你需要快速迭代 agent 逻辑  
+      - 你希望 API keys/secrets 留在 sandbox 外  
+      - 你更偏好 “agent state 与执行环境分离”的清晰边界
+
+      一个简单自检是：你最怕什么？
+      - 怕 secrets 暴露与镜像迭代慢 → Pattern 2 更自然  
+      - 怕环境状态太复杂、迁移成本高 → Pattern 1 更自然
+
+  - type: md
+    title: 练习：为你的 agent 画一张“边界图”
+    body: |
+      选一个你想构建的 agent（代码修复、数据分析、网页自动化均可），画出两张边界图：
+
+      1) Agent IN Sandbox：哪些组件在 sandbox 内？推理 API key 在哪？跨边界通信怎么做？  
+      2) Sandbox as Tool：agent state 在哪？执行调用怎么封装成 tool？是否需要 stateful session？
+
+      然后回答三个问题：
+
+      - 你的 secrets 最小暴露面是什么？  
+      - 你需要多快迭代 agent 逻辑？  
+      - 你的执行环境需要多强的持久状态（包/文件/缓存）？
+
+      目标不是“选一个最好”，而是把权衡显式化，避免上线后再返工重构。
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-02-10
+      - 来源：LangChain
+      - 建议：阅读原文时建议重点看：1) 两种模式的“实践形态”描述（image+文字）；2) Pattern 1 的四个代价（通信层、keys 在沙箱内、镜像重建、IP 外泄）与“权限同一化”的补充观点；3) Pattern 2 的收益（迭代快、keys 在外、state 解耦、并行沙箱、按需付费）与主要代价（网络延迟 + 依赖 stateful session）。
+
+  - type: url
+    title: "原文：The two patterns by which agents connect sandboxes"
+    url: https://blog.langchain.com/the-two-patterns-by-which-agents-connect-sandboxes
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      具体 sandbox provider 的 SDK 能力、价格模型、以及 deepagents 的配置 API 可能会随时间变化。
+      更可迁移的是两种架构模式与它们的边界取舍：agent 放在边界哪侧、secrets 放在哪、state 怎么持久化、以及跨边界通信与延迟如何被管理。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) 两种模式的分界是“agent 跑在哪里”：Pattern 1 把 agent 本体跑进 sandbox；Pattern 2 把 sandbox 当作远程执行工具。  
+      2) secrets 的放置是关键差异：Pattern 1 往往需要把 API keys 放进 sandbox；Pattern 2 更容易把 keys 留在 sandbox 外。  
+      3) Pattern 1 更贴近本地开发但需要通信层与镜像迭代；Pattern 2 更利于快速迭代与解耦，但要付网络延迟成本并考虑 session 化。  
+      4) 选型时优先显式化三件事：执行环境耦合度、迭代速度需求、以及 secrets/权限边界（是否存在“某些工具应比 LLM 生成代码拥有更高权限”的需求）。

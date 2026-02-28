@@ -1,31 +1,154 @@
 id: devblog-2026-01-23-unrolling-the-codex-agent-loop
-title: "Unrolling the Codex agent loop"
+title: "Agent Loop：harness 如何编排推理与工具（状态/缓存/压缩）"
 summary: |
-  文章把“Codex（CLI）背后的 harness/安全带”拆成一个可复用的心智模型：harness 负责在**用户 ↔ 模型 ↔ 工具**之间编排循环（agent loop），并把工具执行带来的副作用（写文件/改代码）与最终给用户的 assistant message 一起当作“输出”。
+  这篇文章把 Codex CLI 背后的“harness（安全带/编排层）”拆成一个可复用心智模型：harness 负责在用户、模型与工具之间运行 agent loop（推理↔工具↔观察的循环），并把“最终 assistant message + 工具副作用（例如写文件/改代码）”一起视为一次 turn 的输出。原文同时把三个经常被低估的工程主题讲得很具体：SSE 事件流如何变成可回放的 items、prompt caching 为什么要求前缀稳定、以及如何在保持请求无状态（stateless、支持 ZDR）的前提下做 compaction 续航。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2026-01-23
-      - 来源：OpenAI
-      - URL：https://openai.com/index/unrolling-the-codex-agent-loop
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/OpenAI/Agents_and_Tooling/2026-01-23__unrolling-the-codex-agent-loop__ae10eb4597.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      很多新人会把“agent”想成：用户问一句，模型回一句，再调用几个工具。
+
+      但一旦你做的是 coding agent（会读文件、跑命令、写补丁），你会发现：真正决定可靠性与成本的，往往不是“模型回了什么”，而是 **harness 如何组织 loop、如何记录中间过程、如何控成本、如何在上下文变长时续航**。
+
+      这节课围绕原文回答几个具体问题：
+
+      1) 一个对用户来说的“单次回合（turn）”，在系统内部可能包含哪些推理↔工具的迭代？  
+      2) harness 在这个 loop 中承担什么职责？哪些问题更像系统工程而不是模型能力？  
+      3) 为什么 Codex 如此在意 prompt caching？哪些“看似无害”的变化会导致 cache miss？  
+      4) 当对话变长接近 context window 上限时，compaction 具体怎么做？为什么 Codex 选择保持请求无状态（stateless）？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：turn、thread、items 与“无状态请求”
     body: |
-      - 主题：agent loop、harness、tool calling、Responses API、SSE streaming、prompt caching、statelessness、ZDR、compaction、context window
-      - 要点：
-        - 文章把“Codex（CLI）背后的 harness/安全带”拆成一个可复用的心智模型：harness 负责在**用户 ↔ 模型 ↔ 工具**之间编排循环（agent loop），并把工具执行带来的副作用（写文件/改代码）与最终给用户的 assistant message 一起当作“输出”。
-        - 一个 turn 的结构：先把用户输入整理进 prompt → 调一次推理（inference）→ 模型要么产出最终 assistant message，要么发出 tool call；若是 tool call，harness 执行并把**tool output 追加回 prompt**，再重新调用模型；直到模型停止发 tool call 并输出 assistant message（这被视为该 turn 的终止状态）。
-        - 多轮对话（thread）会让 prompt 持续增长：新一轮的 `input` 必须包含历史中的 message、tool call、tool output 等项目。作者强调：对 agent 来说，一个 turn 内可能有很多次 “推理↔工具”迭代，但对用户仍表现为一次对话回合。
-        - 以 Responses API 为例，输入不是“纯文本”，而是一个 **items 数组**（例如 message / reasoning / function_call / function_call_output 等），这决定了“你怎么表示工具调用与结果”会直接影响后续推理与可观察性。
-        - Streaming 采用 SSE：服务端按 `response.*` 事件流推送；像 `response.output_text.delta` 用于 UI 流式展示，而 `response.output_item.added` 这类事件会被 harness 转成内部事件对象，并**追加到下一次请求的 input**，保证状态可延续。
-        - 性能直觉：随着对话增长，把完整 JSON 每次都带上看似“二次方膨胀”；API 有 `previous_response_id` 这类机制可减轻，但 Codex 选择**不使用**，优先保持请求**完全无状态（stateless）**，并支持 Zero Data Retention（ZDR）配置。
-        - 解释 ZDR 与 `encrypted_content`：即使不在服务端存 conversation state，也可以保留“推理相关的受保护内容”以便在服务端解密使用（文中强调：OpenAI 持久化密钥而不持久化数据），从而兼容“无状态请求”与“保留推理收益”。
-        - 采样成本通常远高于网络传输，因此效率重点是**prompt caching**：缓存命中要求“新 prompt 的前缀与旧 prompt 完全一致”。因此要把静态内容（指令/示例/工具定义）放前面，把变化内容放后面。
-        - 文中列举会导致 cache miss 的典型变更：对话中途改变 `tools` 列表、切换 `model`、改变 sandbox 配置/approval mode/当前工作目录（cwd）。其中一个真实坑：MCP 工具枚举顺序不稳定会导致 cache miss；而 MCP 的 `notifications/tools/list_changed` 在长对话中途触发也可能带来昂贵 miss。
-        - 为了尽量保持 prefix 不变，Codex 的做法是：当权限/沙箱配置或 cwd 改变时，不去改旧的输入项，而是**追加新的 message**来表达变化（例如追加新的 `<permissions instructions>` 或 `<environment_context>` 项）。
-        - 另一个关键资源是 context window：prompt 变长会逼近上下文上限（且上限包含 input+output）。Codex 的策略是**compaction**：超过阈值就用更小的 items 列表替换 `input`，保留“代表性的高保真摘要”。
-        - compaction 的演进：早期需要用户手动 `/compact`（让模型总结再作为新 input）；后来 Responses API 提供 `/responses/compact`，返回包含 `type=compaction` 的条目（带不透明 `encrypted_content`，用于保留模型的“潜在理解”）。Codex 现在会在 `auto_compact_limit` 超过时自动触发。
+      **Turn / Thread（回合 / 线程）**  
+      原文把一次从用户输入到 agent 返回 assistant message 的过程称为一个 turn；多次 turn 串起来是一条 thread。关键点是：一个 turn 内部可能包含多次“模型推理 ↔ 工具调用”的往返。
+
+      **Harness（编排层）**  
+      位于模型与工具之间：负责组装输入、发起推理、执行工具、把工具结果回喂、决定是否继续迭代、并把过程变成可观测 trace。
+
+      **Items（结构化输入/输出）**  
+      原文以 Responses API 为例：输入不是一段纯文本，而是一组 items（消息、reasoning、function_call、function_call_output 等）。  
+      这决定了一个重要工程事实：你怎么表示“工具调用与结果”，会直接影响后续推理与可调试性。
+
+      **Stateless（无状态请求）**  
+      服务端不保存会话状态；每次请求都携带完整的输入 items。它简化服务端并支持 ZDR（Zero Data Retention），但也会让“传输的 JSON 随对话增长”这个问题变得更尖锐。
+
+  - type: md
+    title: 拆开一个 turn：推理、工具调用、观察，再推理
+    body: |
+      原文把 agent loop 描述得非常清晰：
+
+      1) harness 把用户输入整理进 prompt（或更准确地说：整理进一组输入 items）。  
+      2) 调用模型做 inference。  
+      3) 模型要么：  
+         - 直接产出最终 assistant message（turn 结束），要么  
+         - 发出一个 tool call。  
+      4) 如果是 tool call：harness 执行工具，把 tool output 追加回输入 items，再次调用模型。  
+      5) 重复直到模型停止发 tool call，并产出 assistant message 作为终止信号。
+
+      原文强调一个对软件 agent 很关键的点：**turn 的输出不只有一段话**。  
+      在 coding agent 里，主要输出往往是“它在你机器上写了哪些文件/改了哪些代码”；assistant message 更像一个“终止状态信号”，告诉用户“这轮执行完成了”。
+
+  - type: md
+    title: SSE 事件流：不是“流式文本”，而是结构化事件日志
+    body: |
+      原文解释了为什么 Responses API 的 streaming 对 harness 很重要：服务端通过 SSE 推送一串 `response.*` 事件。
+
+      其中两类事件的用途不同：
+
+      - `response.output_text.delta` 这类事件主要用于 UI：让用户看到“正在打字”。  
+      - `response.output_item.added` 等结构化事件则更像“执行日志”：harness 会把它们转成内部事件对象，并把这些对象追加到下一次请求的输入 items 里，保证状态可延续。
+
+      这就是为什么在 agent 系统里，streaming 不只是体验优化：它也是“把中间过程结构化并落盘”的入口。
+
+  - type: md
+    title: 性能主题：prompt caching 为什么要求“前缀稳定”
+    body: |
+      原文把成本直觉讲得很坦率：采样（inference）的成本通常远高于网络传输，因此提升效率的关键是 prompt caching。
+
+      缓存命中的必要条件非常苛刻：**新 prompt 的前缀必须与旧 prompt 完全一致**。  
+      因此一个非常可迁移的设计原则是：把静态内容（指令/示例/工具定义）放在前面，把变化内容放在后面。
+
+      原文也列举了一批会导致 cache miss 的“典型变更”：
+
+      - 对话中途改变 `tools` 列表  
+      - 切换 `model`  
+      - 改变 sandbox 配置 / approval mode / 当前工作目录（cwd）
+
+      它还给了一个真实踩坑：Codex 早期支持 MCP tools 时，曾出现“枚举工具列表顺序不一致”的 bug，导致缓存频繁 miss。更麻烦的是：MCP server 还可能通过 `notifications/tools/list_changed` 动态改变工具列表；如果在长对话中途响应这个变化，也可能触发一次昂贵的 cache miss。
+
+  - type: md
+    title: 如何在对话中途变更配置而不破坏缓存：追加新消息，而不是改旧消息
+    body: |
+      面对“中途配置变化”这种现实需求，原文给了一个很有启发的处理方式：尽量不修改旧输入项，而是追加新的 message 来表达变化，从而尽量保持前缀稳定。
+
+      原文举了两个例子：
+
+      - sandbox 配置或 approval mode 变了 → 追加一条新的 `role=developer` message，沿用原先 `<permissions instructions>` 的格式。  
+      - cwd 变了 → 追加一条新的 `role=user` message，沿用原先 `<environment_context>` 的格式。
+
+      这背后的工程动机是：你既满足了“配置真的变了”的语义，又尽量不破坏已有前缀带来的缓存收益。
+
+  - type: md
+    title: 无状态的代价与好处：为什么 Codex 不用 `previous_response_id`
+    body: |
+      原文提出一个你可能也会担心的问题：每次请求都带完整 JSON，随着对话增长，传输量确实是“二次方”增长趋势。
+
+      Responses API 提供了一个可选参数 `previous_response_id` 来缓解这一问题，但原文明确说 Codex 目前不使用它，主要是为了保持请求完全无状态，并支持 ZDR（Zero Data Retention）。
+
+      原文还补充了一个很关键的实现细节：即便是 ZDR 场景，客户也不必牺牲“受保护 reasoning 内容”的收益——因为 `encrypted_content` 可以在服务端解密使用；OpenAI 持久化的是 ZDR 客户的解密密钥，而不是对话数据本身。
+
+      对 agent-builder 来说，这段话的启发是：stateful 与 stateless 是一组架构取舍，你需要结合合规/隐私/缓存/成本一起权衡，而不是只看“网络传输更省”。
+
+  - type: md
+    title: 上下文续航：compaction 如何让 thread 能继续跑下去
+    body: |
+      除了缓存，原文认为 harness 还必须治理另一个硬资源：context window。
+
+      Codex 的总体策略是：当 token 数超过某个阈值，就 compact 对话——用一组更小但“代表性足够”的 items 替换原 `input`，让 agent 仍能理解“到目前为止发生了什么”，并继续后续 turn。
+
+      原文还讲了 compaction 的演进：
+
+      - 早期：需要用户手动执行 `/compact`，系统用现有对话 + 总结指令去调用一次模型，再把总结作为新 `input`。  
+      - 后来：Responses API 提供 `/responses/compact` endpoint，更高效地返回一组可直接替换 `input` 的 items。返回中包含 `type=compaction` 的条目，并带不透明的 `encrypted_content`，用于保留模型对原始对话的“潜在理解”。  
+      - Codex：当超过 `auto_compact_limit` 时自动触发 compaction。
+
+      这段的可迁移点是：长任务续航不是“把窗口做大”就结束了，你需要一个能在真实 traces 上运转的压缩机制，并把它当成 harness 的一等能力。
+
+  - type: md
+    title: 练习：为你自己的 harness 写一个“缓存友好”的输入策略
+    body: |
+      选一个你正在做的工具型 agent，回答下面问题并写成 1 页设计笔记：
+
+      1) 你的输入 items/消息里，哪些属于静态前缀（指令、工具定义），哪些属于频繁变化（对话、状态、观测）？  
+      2) 当配置在对话中途变化时，你会“修改旧项”还是“追加新项”？为什么？  
+      3) 你会如何保证工具列表的顺序稳定（尤其是动态工具来源，比如 MCP）？  
+      4) 你会在什么阈值触发 compaction？压缩输出必须保留哪些字段（目标/约束/已做动作/关键产物入口）？
+
+      检验标准：在长对话里，你的系统能否同时做到“可调试（有 trace）+ 成本可控（有缓存策略）+ 可续航（有 compaction）”？
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-01-23
+      - 来源：OpenAI
+      - 建议：阅读原文时可以重点对照四段：1) agent loop 的 turn/thread 定义；2) SSE 事件如何被转成内部事件并追加到下一次 input；3) prompt caching 的前缀稳定性与 cache miss 的真实坑（MCP tools 枚举顺序、list_changed）；4) stateless + ZDR 的取舍与 `/responses/compact` 的 compaction 演进。
+
+  - type: url
+    title: "原文：Unrolling the Codex agent loop"
+    url: https://openai.com/index/unrolling-the-codex-agent-loop
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      原文涉及 Codex CLI 与 Responses API 在 2026-01-23 时点的实现细节（具体事件类型、compaction endpoint、参数命名、以及 MCP 集成行为）。这些细节可能会随 SDK/协议演进而变化。
+      更可迁移的是 harness 工程原则：把 agent loop 表达成结构化 items 与事件流；围绕 prompt caching 维护前缀稳定；在合规约束下选择 stateful/stateless；并把 compaction 作为长任务的一等续航机制。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) 一个用户眼里的“单回合”，内部可能包含多次推理↔工具往返；harness 的职责是执行工具、回喂观测、直到产出 assistant message 作为终止信号。  
+      2) harness 往往承担系统级工作：输入 items 组织、工具边界、错误恢复、trace 记录、成本控制（缓存）、上下文管理（compaction）。  
+      3) prompt caching 的命中要求前缀完全一致，因此工具列表顺序、模型/沙箱/cwd 变化都可能引发 cache miss；追加新消息表达配置变化是一种更缓存友好的策略。  
+      4) Codex 选择 stateless（不使用 `previous_response_id`）来支持 ZDR，并通过 `/responses/compact` 在 token 超阈值时压缩输入续航；这体现的是“合规/隐私/性能/续航”一起权衡的系统设计，而不是单点优化。

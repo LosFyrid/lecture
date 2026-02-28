@@ -1,32 +1,152 @@
 id: devblog-2026-01-13-vector-search-vs-filesystem-tools-2026-benchmark
-title: "Vector Search Vs. Filesystem Tools: 2026 Benchmarks | LlamaIndex"
+title: "检索选型实证：向量检索 vs 文件系统探索（速度/质量/规模）"
 summary: |
-  文章回应一个热门观点：给 agent `cat/ls/grep` 这类 filesystem 工具后，是否会“杀死向量检索/RAG”？作者用实验把问题拆成：在不同数据规模与约束下，filesystem 探索与传统 RAG 的速度/质量分别如何。
+  这篇文章回应一个在 agent 圈很常见的观点：既然 LLM 会用 `cat/ls/grep`，那“文件系统探索（filesystem tools）”会不会杀死向量检索/RAG？作者用对照实验把问题拆开：在小规模高保真阅读任务里，fs-explorer 的质量更好但更慢；当规模扩到 100/1000 文档时，RAG 更容易扩展、延迟优势更明显。结论不是二选一，而是“取决于数据规模、延迟预算与上下文工程能力”。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2026-01-13
-      - 来源：LlamaIndex
-      - URL：https://www.llamaindex.ai/blog/did-filesystem-tools-kill-vector-search
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LlamaIndex/Agents_and_Tooling/2026-01-13__vector-search-vs-filesystem-tools-2026-benchmarks-llamaindex__b40b151f2d.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      如果你正在做“文档型 agent / 代码库 agent / 研究型 agent”，你迟早会遇到一个选型问题：
+
+      - 我应该建向量库做 RAG 吗？  
+      - 还是给 agent 文件系统工具，让它自己 `ls/grep/read` 去找？
+
+      这篇文章的价值在于：它没有停留在“各有道理”的讨论，而是用一组实验把差异量化出来，并且做了一个很重要的扩展：**当文档规模变大时，两种方法的优劣会反转或收敛。**
+
+      读完后你应该能回答：
+
+      1) fs-explorer 与传统 RAG 的核心差别是什么？（不是“有没有向量库”，而是“检索路径/上下文形态/调用次数”）  
+      2) 为什么在小规模任务里 filesystem exploration 可能更准，但通常更慢？  
+      3) 当文档规模扩到 100/1000 时，为什么 RAG 更占优势？fs-explorer 需要做哪些工程改造才能不崩？  
+      4) 你应该用什么实验设计，来为自己的系统做“可重复的检索选型”？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：RAG 与 filesystem exploration 各在“哪里丢信息”
     body: |
-      - 主题：RAG vs filesystem exploration、hybrid retrieval、benchmark design、latency/quality tradeoff、scaling behavior
-      - 要点：
-        - 文章回应一个热门观点：给 agent `cat/ls/grep` 这类 filesystem 工具后，是否会“杀死向量检索/RAG”？作者用实验把问题拆成：在不同数据规模与约束下，filesystem 探索与传统 RAG 的速度/质量分别如何。
-        - 实验 1（小规模、长文档）：用 5 篇 arXiv PDF（约 22–52 页）构造 5 个 QA 任务，问题要求对论文具体段落做精确回答。
-          - RAG 系统：混合检索（dense+sparse）+ RRF；PDF→文本→句子 chunk→embedding→向量库；并做“先判定最可能的文件”作为 metadata filter；最后取 top-1 chunk 做回答。
-          - fs-explorer agent：循环调用 filesystem 工具（读文件、grep、列目录、glob），并带一个 `parse_file` 工具把 PDF 解析成文本（有缓存）。
-        - 小规模结果：
-          - 速度：RAG 更快，平均 **7.36s**，fs-explorer 平均 **11.17s**（差 **3.81s**）。解释：filesystem 探索需要多次 LLM 回合与工具交互；RAG 路径固定且网络调用数量更稳定。
-          - 质量：fs-explorer 更好，平均 correctness **8.4 vs 6.4**，relevance **9.6 vs 8.0**。解释：RAG 受 chunking 与检索误差影响，给最终生成的上下文可能不完整/不准；而小规模 PDF 能直接装进 1M 上下文（Gemini 3 Flash），agent 看到更完整语境，幻觉更少。
-          - 但作者强调：这种优势在文档更大、会溢出 context window 时可能消失。
-        - 实验 2（规模扩展到 100/1000 篇）：改用摘要文本以省掉解析；RAG 改为 BM25；fs-explorer 先读 `metadata.jsonl` 用标题筛选候选文件以减少遍历。
-        - 扩展结果：规模越大，RAG 越容易扩展，速度优势更明显；正确率也略优或接近；两者 relevance 都很好。作者给出的工程结论是：
-          - filesystem 探索更适合异步/后台任务或小规模高保真阅读；
-          - RAG 更适合实时、低延迟与大规模（百万文档、十亿 embedding）检索；
-          - 选择取决于功能与非功能需求（延迟、成本、数据规模、可维护性），并且 filesystem 路线在规模变大时也需要 compaction 等 context 工程来防止“上下文被文件内容填爆”。
+      **Traditional RAG（传统检索增强生成）**  
+      典型流程是：把文档解析成文本 → chunk → embedding → 向量检索（可能混合稀疏/密集）→ 把 top-k chunks 作为 context → 模型生成答案。  
+      它更像“先召回一小段证据，再回答”。
+
+      **Filesystem exploration（文件系统探索式 agent）**  
+      典型流程是：模型在 loop 里反复调用工具（列目录、grep、读文件、parse PDF），逐步缩小范围，直到它认为“看到足够证据”再回答。  
+      它更像“在环境里自己查阅材料”。
+
+      两者的关键差别不在“哪个更聪明”，而在“信息在管线里如何被压缩/丢失”：
+
+      - RAG 的损失常发生在 **chunking 与召回**：拿到的片段可能不完整、上下文断裂、或召回偏了。  
+      - filesystem exploration 的损失常发生在 **上下文预算与多轮交互**：为了读到足够材料，它需要更多轮 LLM 调用与工具交互，延迟与 token 成本更高；并且当材料规模扩大时，很容易把上下文塞爆。
+
+  - type: md
+    title: 实验设置：同一批任务，跑两条完全不同的检索管线
+    body: |
+      原文做了一个非常“对照实验”的设置：
+
+      - 数据集：5 篇近期 arXiv 论文（约 22-52 页）  
+      - 任务：5 个问答对（每篇论文 1 个问题），问题要求对论文特定段落做**详细且精确**的回答  
+      - 评估维度：平均耗时（speed）、correctness、relevance
+
+      对照的两条管线是：
+
+      **A) Traditional RAG（hybrid + RRF）**  
+      - 解析 PDF → 句子级 chunk → dense embedding + sparse embedding → 向量库检索  
+      - 使用 metadata filter：先让 LLM 猜“最可能在哪个文件”，再在该文件内检索  
+      - 用 RRF 进行 rerank  
+      - 实验里取 top-1 chunk（n=1）作为最终上下文
+
+      **B) fs-explorer agent（filesystem tools + parse_file）**  
+      - 模型在 loop 中反复调用 `read_file` / `grep_file_content` / 列目录 / glob 等工具  
+      - 遇到 PDF 等非结构化文件时，用 `parse_file` 调用解析器把文件转成文本（并缓存）
+
+      你可以注意到：两条路径的“信息进入模型的方式”完全不同——RAG 是一次性喂少量 chunks；fs-explorer 更接近“把整篇论文读进来再答”。
+
+  - type: md
+    title: 结果 1：RAG 更快（7.36s vs 11.17s），但 filesystem agent 更准（8.4/9.6）
+    body: |
+      原文给出了一组非常直观的数字：
+
+      **速度（Speed）**  
+      - RAG 平均 7.36s  
+      - fs-explorer 平均 11.17s  
+      - 差 3.81s（RAG 更快）
+
+      原文的解释也很工程化：fs-explorer 需要多轮与 LLM 的交互，延迟更高；而 RAG 路径更固定，作者的 RAG 管线大致是四次网络调用（选文件、embedding、向量检索、最终生成）。
+
+      **质量（Correctness / Relevance）**  
+      - correctness：fs-explorer 8.4 vs RAG 6.4  
+      - relevance：fs-explorer 9.6 vs RAG 8.0
+
+      原文给出的主要原因是：RAG 容易受 chunking 与检索误差影响，最终生成模型看到的上下文可能“少/断/偏”；而 fs-explorer 在小规模长文档里能更充分地看到整篇语境，因此幻觉更少、回答更贴合。
+
+      原文还点出一个关键边界条件：这些论文不算长，因此能“比较容易地塞进 Gemini 3 Flash 的 1M tokens context window”。如果文件更大导致溢出，这个优势可能会消失。
+
+  - type: md
+    title: 结果 2：规模扩到 100/1000 时，RAG 更容易扩展
+    body: |
+      原文进一步把实验扩到 100 与 1000 篇 arXiv 摘要（为了省资源，用摘要文本绕过 PDF 解析阶段），并做了三项关键调整：
+
+      - 通用：用缓存注入文本，避免解析开销  
+      - RAG：从 hybrid 切到 sparse only，用 BM25  
+      - fs-explorer：先读 `metadata.jsonl`（标题等元数据）来筛候选，避免在海量文件里盲逛
+
+      在这两组规模实验里，原文观察到：
+
+      - RAG 在速度上显著更好  
+      - correctness 上 RAG 也略优  
+      - relevance 基本相当
+
+      这组结果把一个“常被忽略的现实”讲清楚：filesystem exploration 在规模变大时会遇到双重压力：
+
+      - 浏览/筛选本身就耗时（更多轮工具调用）  
+      - 上下文更容易被“读过的内容”填满，需要 compaction 等上下文工程才能持续运行
+
+  - type: md
+    title: 工程结论：不是 RAG vs FS 二选一，而是“按约束选路径”
+    body: |
+      原文最后给出的答案是典型的工程答案：“it depends”。
+
+      你可以把它翻译成一组可操作的选型直觉：
+
+      - 如果你更在意 **高保真理解**（小规模、长文档、需要引用具体段落），filesystem exploration 往往更自然，但要接受更高延迟与多轮交互成本。  
+      - 如果你更在意 **低延迟与大规模扩展**（上百上千、甚至百万文档），RAG 往往更稳，而且一旦把 parsing/chunking/检索链路优化好，速度优势会非常明显。  
+      - 如果你想两者兼得，更常见的是 **混合策略**：RAG 负责粗召回与规模化过滤；filesystem 工具负责“对少量候选做深读/精查”；再配合 context compaction 控制长任务。
+
+  - type: md
+    title: 练习：为你的系统写一个“检索选型对照实验”
+    body: |
+      把原文方法迁移到你的系统，一个很实用的练习是：自己做一个最小对照实验（不求大而全，先求可复现）。
+
+      1) 选 20-50 个文档（或 5-10 个长文档），为每个文档写 1 个“必须引用具体段落才能答对”的问题。  
+      2) 做两条管线：RAG（你当前的实现）vs 文件系统探索（list/grep/read）。  
+      3) 记录三类指标：  
+         - 延迟（端到端）  
+         - 质量（你自定义的 correctness/relevance rubric）  
+         - 成本（LLM 调用次数、tokens、工具调用次数）
+      4) 把规模扩大 10 倍，看趋势是否反转。
+
+      检验标准：你的结论能否清晰回答“在我的数据规模与延迟预算下，哪个方案更划算”？
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-01-13
+      - 来源：LlamaIndex
+      - 建议：阅读原文时可以对照三段：1) 实验设置（5 篇论文、两条管线）；2) 三个核心数字（7.36s vs 11.17s；8.4 vs 6.4；9.6 vs 8.0）以及作者对“chunking/context window”的解释；3) 规模扩展到 100/1000 时的改造与结论（BM25、metadata.jsonl、延迟成为主要区分变量）。
+
+  - type: url
+    title: "原文：Vector Search Vs. Filesystem Tools: 2026 Benchmarks | LlamaIndex"
+    url: https://www.llamaindex.ai/blog/did-filesystem-tools-kill-vector-search
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      文中使用的具体模型（Gemini 3 Flash）、上下文窗口大小、以及作者实现的工具/栈（Qdrant、embedding provider、解析器）可能会随时间变化。
+      更可迁移的是实验设计与趋势判断：小规模高保真阅读更容易受 chunking/召回影响；规模变大时，固定路径的检索管线（RAG）在延迟与扩展性上更占优；filesystem exploration 需要配合更强的上下文工程（例如 compaction）才能持续运行。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) fs-explorer 与 RAG 的核心差别不在“谁更聪明”，而在“信息如何进入模型”：RAG 依赖 chunking+召回，fs-explorer 依赖多轮工具交互与更完整语境。  
+      2) 小规模任务里 fs-explorer 可能更准，是因为它更容易让模型看到整篇语境；但它更慢，因为需要更多轮 LLM 调用与工具往返。  
+      3) 规模扩到 100/1000 后，RAG 更容易扩展，延迟优势更明显；fs-explorer 需要元数据筛选与 compaction 等工程才能不在规模上崩溃。  
+      4) 最可靠的选型方式是做对照实验：同时度量延迟、质量与成本，并在“规模扩大”这一维度上观察趋势是否反转。

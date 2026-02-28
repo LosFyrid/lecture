@@ -1,32 +1,32 @@
 id: agent-dev-201-t02-context-engineering
-title: "Track 2 - Context Engineering：Sessions / 长任务 / 长上下文失败模式"
+title: "Context Engineering：长任务上下文管理"
 description: |
   系统掌握 context engineering：把上下文当作有限注意力预算进行选择/排序/压缩/隔离；
   理解长上下文退化与长任务的失败模式，并学习可落地的工程手段（compaction、JIT、note-taking 等）。
 modules:
-  - id: m01-context-engineering-prom
-    title: "定义与关键原则（Context Engineering 取代 Prompt Engineering）"
+  - id: ce-definition-diagnosis
+    title: "什么是 Context Engineering（定义与诊断框架）"
     lessons:
       - devblog-2025-09-29-effective-context-engineering-for-ai-agents
       - devblog-2025-06-23-the-rise-of-context-engineering
       - devblog-2025-06-30-the-new-skill-in-ai-is-not-prompting-it-s-contex
       - devblog-2025-06-23-context-engineering-for-agents
       - devblog-2025-07-03-context-engineering-guide-techniques-for-ai-agen
-  - id: m02-context-engineering-sele
-    title: "代码化的 Context Engineering：最小可运行组件（Select/Write/Compress）"
+  - id: ce-minimal-toolkit
+    title: "最小可运行的 Context 工程组件（Select/Write/Compress）"
     lessons:
       - devblog-2026-01-19-context-kit
-  - id: m03-context-rot
-    title: "长上下文退化（Context Rot）与具体失败类型"
+  - id: ce-failure-modes
+    title: "长上下文退化与失败模式（Context Rot / Poisoning 等）"
     lessons:
       - devblog-2025-07-14-context-rot-how-increasing-input-tokens-impacts
       - devblog-2025-06-22-how-long-contexts-fail
-  - id: m04-untitled
-    title: "“拥有你的上下文窗口”：自定义上下文格式 / 可控输入"
+  - id: ce-own-context
+    title: "自定义上下文格式：Own Your Context Window"
     lessons:
       - devblog-2024-03-15-12-factor-agents-content-factor-03-own-your-cont
-  - id: m05-untitled
-    title: "长任务上下文管理的工程实践（动态选择/压缩/隔离）"
+  - id: ce-long-horizon
+    title: "长任务的上下文管理：卸载/压缩/隔离/触发器"
     lessons:
       - devblog-2026-01-28-context-management-for-deep-agents
       - devblog-2026-02-12-long-horizon-document-agents

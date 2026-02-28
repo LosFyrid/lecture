@@ -1,32 +1,165 @@
 id: devblog-2026-02-12-long-horizon-document-agents
-title: "Long Horizon Document Agents"
+title: "Long-horizon 文档 agent：Triggers + Backlog + 非聊天式人机界面"
 summary: |
-  文章把“文档知识工作”看成 long-horizon agent 的关键落点：不仅要能对一堆文档做一次性深度问答，还要能在**长时间、多轮协作、持续变化**的环境里推进工作并维护产物（living document）。
+  这篇文章把“文档知识工作”视为 long-horizon agents 的关键落点：不只是对一堆文件做一次性深度问答，而是能在长时间、多轮协作、持续变化的环境里推进工作并维护 living document。作者认为当前产品要么是长跑但受限的 IDP/RPA 文档抽取，要么是通用但偏短期的聊天式 agent；真正的缺口是“同步 chat 形态无法自治”。原文提出一个很可迁移的架构框架：long-horizon 文档 agent = 一个通用 agent loop + 三件基础设施（triggers beyond chat、persistent backlog、非聊天式人机界面），并用 FAQ/PRD/redline/尽调 memo 四个场景展开说明。
 items:
   - type: md
-    title: 阅读材料
+    title: 导入：本课要回答的问题
     body: |
-      - 发布日期：2026-02-12
-      - 来源：LlamaIndex
-      - URL：https://www.llamaindex.ai/blog/long-horizon-document-agents
-      - 本地清洗版：`processed/2-26-02-25/dev_blogs/LlamaIndex/Agents_and_Tooling/2026-02-12__long-horizon-document-agents__f252880766.md`
-      - 建议：先读“核心内容摘要”，再按需回看原文细节/代码/图表。
+      当你在公司做知识工作时，“写文档”通常不是一次性任务，而是一个持续过程：资料会更新、评论会出现、需求会变化、signoff 会反复，文档会变成 living document（活的单一事实源）。
+
+      这篇文章的核心观点是：如果 agent 只能在“人类发一句 prompt”后同步运行，那么它就很难承担这种长周期工作；人类仍然是调度器、编排者与复查者，效率提升会被人类带宽卡住。
+
+      读完本课后，你应该能回答：
+
+      1) 文档型 long-horizon agent 与“聊天式问答机器人”的关键差别是什么？  
+      2) 为什么作者说 2026 会出现从“workflows → employees”的跃迁？这对系统形态意味着什么？  
+      3) long-horizon 文档 agent 的三件基础设施（Triggers / Backlog / Interface）分别解决什么问题？  
+      4) FAQ/PRD/合同 redline/尽调 memo 这四个例子，分别暴露了哪些必须被工程化的能力？
 
   - type: md
-    title: 核心内容摘要（中文压缩复述）
+    title: 概念对齐：long-horizon、living document 与“inbox”
     body: |
-      - 主题：long-horizon agents、event triggers、persistent backlog、human interface beyond chat、document collaboration loops、continuous updates
-      - 要点：
-        - 文章把“文档知识工作”看成 long-horizon agent 的关键落点：不仅要能对一堆文档做一次性深度问答，还要能在**长时间、多轮协作、持续变化**的环境里推进工作并维护产物（living document）。
-        - 现状拆分为两类产品形态：① 文档抽取/IDP（较确定但工作流受限）② chat-based agentic chatbot（更通用但多数是同步、需要人触发）。作者认为瓶颈在于：同步 chat 形态让人类仍是“调度器/编排者/复查者”，限制了长时间自治。
-        - 人类的文档工作本质是多步迭代协作：找资料→起草→评审评论→修改→多轮迭代→签核发布；发布后资料源继续变化（新文件、Slack 讨论、需求变更），文档需要持续更新。
-        - 为了让 agent 能做“长时文档工作”，作者提出一个 “inbox” 心智模型：long-horizon agent 需要的不只是 agent loop，还需要三块基础设施：
-          - Triggers（不止 chat）：文档被编辑/收到 redline/有人评论/模板变化/新文件出现/临近 deadline 等事件触发；
-          - Persistent task backlog：把不能立刻完成的工作放入待办队列（批处理、升级、等待批准），而不是每件事都打断人；
-          - Human interface 不只是聊天框：需要任务列表、通知、审阅与批准等交互面，让 agent 能在关键点“找人”，但日常能自己跑。
-        - 用 4 个具体用例说明差异：
-          - FAQ 持续维护：检测数据源漂移→提出带引用的改动→通知人 spot-check→发布→长期循环；
-          - PRD 从碎片输入生成并迭代：不只是写初稿，还要持续吸收工程/产品/销售等反馈并自我反思；
-          - 合同 redline 协作：收到 redline 事件→总结变更→对齐内部 playbook→起草回应→高风险升级→维护“deal state”跨版本；
-          - 尽调 memo 持续更新：新文档出现→分类抽取→更新风险清单与引用→更新 memo 并标注变化→需要时请求 signoff。
-        - 最后的工程导向结论：要做这种 agent，“无聊的基础设施”变重要——解析/抽取/索引/引用/可组合 workflow，以及把这些能力安全地拼起来，才是长时可靠协作的地基。
+      **Long-horizon agent（长周期 agent）**  
+      原文引用了一个定义：能“迭代地把事情搞明白”，不仅依赖预训练知识，还能在推理与行动中不断迭代到答案。
+
+      **Living document（活的文档）**  
+      文档不是“写完就结束”，而是持续被更新：新资料进来、讨论改变口径、审核意见推动修改。
+
+      **Inbox（任务收件箱）**  
+      原文提出一个形象比喻：要做 long-horizon 文档工作，agent 需要一个类似“收件箱”的系统形态——持续接收事件、生成任务、推进待办、必要时找人，而不是只在聊天框里被动响应。
+
+  - type: md
+    title: 当前两类“文档 AI”产品形态：有价值，但缺口也清晰
+    body: |
+      原文把当前文档类 AI 用例分成两桶：
+
+      1) **Document Extraction（IDP/RPA）**：长跑、较确定，但流程受限（例如批量发票抽取）。  
+      2) **Agentic Chatbots（聊天式 agent）**：更通用，能索引文件系统/向量库、接 MCP tools 与 skills 做行动，但大多仍是同步：需要人触发、需要人持续对话。
+
+      作者认为两桶都很有价值，也会产生巨大影响；但关键缺口在于：**同步 chat 形态无法自治**，从而难以承担“持续更新的端到端文档协作”。
+
+  - type: md
+    title: 核心框架：long-horizon 文档 agent = 通用 agent loop + 三件基础设施
+    body: |
+      原文给出一个非常可迁移的框架：一个 long-horizon 文档 agent 本质上仍是通用 agent loop，但它需要三件额外的系统基础设施：
+
+      1) **Triggers（不止 chat）**  
+         触发不再是“用户发 prompt”这一种。世界变化时也要触发：redline 到达、文档被编辑、有人评论、模板变化、新文件出现、deadline 临近等。
+
+      2) **Persistent task backlog（持久待办队列）**  
+         agent 需要一个地方放“现在做不了/不该马上做”的工作：等待批准、需要批处理、需要升级（escalation）、或需要更多输入。  
+         关键点是：不是所有事都要打断人，也不是所有事都要立即尝试。
+
+      3) **Human interface beyond chat（非聊天式人机界面）**  
+         chat 适合临时对话，但长周期协作更需要：任务列表、通知、审阅与批准、状态面板。  
+         这让 agent 能在关键点找人，而不是让人类一直当“调度器”。
+
+      这三件事把 agent 从“工具”推向“半自治协作者”。
+
+  - type: md
+    title: 例子 1：持续维护 FAQ（一次生成很容易，持续负责很难）
+    body: |
+      原文用 FAQ 举例说明“长周期”难点：
+
+      一次性生成 FAQ 很容易：连好数据源，prompt 一次，输出一版。
+
+      但要让 agent 持续负责 FAQ，需要它能：
+
+      - 检测数据源漂移（SharePoint 文件、Slack、通话记录等更新），并判断哪些变化值得触发更新  
+      - 提出带引用的改动（能追溯回源段落）  
+      - 通知人类 spot-check（抽查审核）  
+      - 发布更新  
+      - 永久循环
+
+      这其实就是“文档 CI”：持续监听、持续生成变更、持续审阅与发布。
+
+  - type: md
+    title: 例子 2：PRD 生成与迭代（像“初级 PM”一样工作）
+    body: |
+      原文认为 PRD 特别能代表真实知识工作：输入碎片化、决策多、讨论多、迭代多。
+
+      流程通常是：先从 Box/SharePoint/Confluence、客户通话、历史 PRD、竞品分析、Slack 线程等收集材料，生成初稿；随后进入跨团队反馈回路（工程、产品、销售/市场），评论与争论会持续出现，可能需要追加调研并回到修改。
+
+      作者指出两个主要缺口：
+
+      - 如何主动关注来自不同来源的反馈事件（而不是等人把反馈复制进 chat）  
+      - 如何持续进行 extended-horizon reasoning 与自我反思（而不是写完一版就结束）
+
+      这类 agent 的定位更像“初级 PM 员工”，而不是一次性的写作工具。
+
+  - type: md
+    title: 例子 3：合同 redline 协作（事件驱动的 deal state）
+    body: |
+      原文对合同 redline 的描述更像一个事件流系统：
+
+      - redline 事件到达  
+      - agent 总结变更、标注关键差异，并映射到内部 playbook  
+      - 起草回应与问题清单  
+      - 高风险项升级给 Legal  
+      - 维护跨版本的“deal state”，而不是只做一次性分析
+
+      这里最重要的不是“模型能不能读懂合同”，而是系统是否能在版本流转中保持状态、追踪变化、并把审批放在正确边界上。
+
+  - type: md
+    title: 例子 4：尽调 memo 持续更新（把知识工作做成持续集成）
+    body: |
+      原文把尽调痛点讲得很真实：新文档常常晚到、模型会被改、风险点可能在“快定稿”时才被发现。
+
+      long-horizon 尽调 agent 的目标是把 memo 当作 living artifact：
+
+      - 新文档出现 → 分类抽取关键点  
+      - 更新风险清单并链接回来源  
+      - 更新 memo 并高亮“这次改了什么”  
+      - 变化重要时请求 signoff
+
+      作者用一个类比总结：这基本是“continuous integration”，但对象是文档与知识工作。
+
+  - type: md
+    title: 作者的工程结论：无聊的基础设施变成关键
+    body: |
+      原文最后的结论很工程化：要实现 long-horizon 文档 agent，真正重要的是“无聊的基础设施”：
+
+      - 解析（parsing）与抽取（extraction）  
+      - 索引（indexing）与引用/溯源（citations）  
+      - 能安全组合的 workflows
+
+      这些是让 agent 能读“公司真实世界的 messy 文档”并做出可靠行动的地基。
+
+  - type: md
+    title: 练习：把你的课程/实验室文档工作改写成 long-horizon 规格
+    body: |
+      选一个你熟悉的文档工作（例如：课程 FAQ、实验室 PRD、论文调研 memo），写一份 long-horizon agent 规格（1 页即可）：
+
+      1) Triggers：哪些事件会触发 agent？（新文件/评论/截止期/模板变更）  
+      2) Backlog：有哪些任务类型？哪些要批处理？哪些要等待批准？  
+      3) Interface：除了 chat，你需要什么 UI（任务列表、通知、审阅/批准）？  
+      4) Artifacts：你要维护哪些 living documents？如何做版本/引用/变更摘要？  
+
+      检验标准：如果没有人类不断 re-prompt，这个 agent 还能否持续推进并在关键点找人确认？
+
+  - type: md
+    title: 原文阅读
+    body: |
+      - 日期：2026-02-12
+      - 来源：LlamaIndex
+      - 建议：阅读原文时建议按 “两桶现状 → 同步 chat 的瓶颈 → 三件基础设施（Triggers/Backlog/Interface）→ 四个场景例子（FAQ/PRD/redline/尽调）→ boring infrastructure” 的顺序做笔记。尤其留意作者对“人类仍是 scheduler/orchestrator/reviewer”的批评：它指向的不是模型不强，而是系统形态不对。
+
+  - type: url
+    title: "原文：Long Horizon Document Agents"
+    url: https://www.llamaindex.ai/blog/long-horizon-document-agents
+    mode: open
+
+  - type: md
+    title: 时效性提示（可能过时）
+    body: |
+      文中对 2026 的趋势判断（workflows→employees）与具体产品举例会随生态变化而变化。
+      更可迁移的是“系统形态”框架：把 long-horizon agent 视为事件驱动的通用 loop，并配套 triggers/backlog/interface 三件基础设施，才能把文档型知识工作从一次性问答推进到持续协作与维护。
+
+  - type: md
+    title: 回到开头的问题：一些提示（Hints）
+    body: |
+      1) long-horizon 文档 agent 的差别不在“能不能回答问题”，而在“能不能在世界变化时继续推进，并维护 living document”。  
+      2) 同步 chat 形态会让人类仍是调度器/编排者/复查者；要让 agent 更自治，需要事件触发与持久待办。  
+      3) Triggers/Backlog/Interface 三件事分别解决：何时启动、做不完怎么办、如何与人协作。缺任何一个，长周期协作都容易退化成反复 re-prompt。  
+      4) FAQ/PRD/redline/尽调四个例子共同指向：必须工程化 parsing/extraction/indexing/citations 与可组合 workflows——这些“无聊基础设施”决定了长周期可靠性。
