@@ -20,31 +20,38 @@ items:
   - type: md
     title: 概念对齐：turn、thread、items 与“无状态请求”
     body: |
-      **Turn / Thread（回合 / 线程）**  
-      原文把一次从用户输入到 agent 返回 assistant message 的过程称为一个 turn；多次 turn 串起来是一条 thread。关键点是：一个 turn 内部可能包含多次“模型推理 ↔ 工具调用”的往返。
+      **Turn /  Agent Loop（回合 / 线程 ）**  
 
-      **Harness（编排层）**  
-      位于模型与工具之间：负责组装输入、发起推理、执行工具、把工具结果回喂、决定是否继续迭代、并把过程变成可观测 trace。
+      原文把一次从用户输入到 agent 返回 assistant message 的过程称为一个 turn。在一个完整的 turn 中包含至少一次“模型推理 ↔ 工具调用”这样的Loop循环。
+      
+      **Thread （线程）**
 
+      由这一个或多个按时间顺序发生的 Turn 串联而成的整体就是一个thread。
+
+      **Harness（执行引擎）** 
+
+      作为支撑智能体运转的底层执行逻辑，它是连接用户、模型与工具的“调度中枢”——它负责将用户指令、系统环境和可用工具精准打包发给模型，在循环执行工具调用时强制实施沙箱权限护栏，并时刻监控上下文窗口，通过自动压缩超载的对话历史来管理模型的记忆负荷，直到驱动模型产出最终面向用户的答复。      
+      
       **Items（结构化输入/输出）**  
-      原文以 Responses API 为例：输入不是一段纯文本，而是一组 items（消息、reasoning、function_call、function_call_output 等）。  
+
+      原文以 Responses API 为例：输入不是一段纯文本，而是一组 items，包含消息、推理记录（reasoning）、工具调用指令（function_call）、工具调用结果（function_call_output 
+      ）等。  
       这决定了一个重要工程事实：你怎么表示“工具调用与结果”，会直接影响后续推理与可调试性。
 
       **Stateless（无状态请求）**  
-      服务端不保存会话状态；每次请求都携带完整的输入 items。它简化服务端并支持 ZDR（Zero Data Retention），但也会让“传输的 JSON 随对话增长”这个问题变得更尖锐。
+
+      服务端不保存会话状态；每次请求都携带完整的输入 items。它简化服务端并支持 ZDR（Zero Data Retention），但也造成了一个问题：随着消息，推理记录和工具调用增加，传输的JSON长度也显著增加。
 
   - type: md
     title: 拆开一个 turn：推理、工具调用、观察，再推理
     body: |
-      原文把 agent loop 描述得非常清晰：
+      我们知道turn是由多轮agent loop迭代组成的，而根据原文描述，一次agent loop有以下几个步骤：
 
-      1) harness 把用户输入整理进 prompt（或更准确地说：整理进一组输入 items）。  
-      2) 调用模型做 inference。  
-      3) 模型要么：  
-         - 直接产出最终 assistant message（turn 结束），要么  
-         - 发出一个 tool call。  
-      4) 如果是 tool call：harness 执行工具，把 tool output 追加回输入 items，再次调用模型。  
-      5) 重复直到模型停止发 tool call，并产出 assistant message 作为终止信号。
+      1. harness 把用户输入整理进 prompt（或更准确地说：整理进一组输入 items）。  
+      2. 调用模型做一次推理。  
+      3. 作为推理结果，模型会结合其内部的逻辑推演与当前可用的工具说明（Tools），生成以下两种输出之一：
+        - 发起一次工具调用（Tool call）：指示底层 Harness 去执行特定的工具（例如运行 ls 命令并带回输出）。harness 在执行工具结束后，把 tool output 追加回输入 items，再次调用模型，返回步骤2。
+        - 产出一条助手消息（Assistant message）：直接回答用户的原始请求，或者向用户提出后续追问。这条消息的出现标志着当前智能体循环（Agent loop）达到终止状态，控制权交还给用户，本轮交互（Turn）正式结束。  
 
       原文强调一个对软件 agent 很关键的点：**turn 的输出不只有一段话**。  
       在 coding agent 里，主要输出往往是“它在你机器上写了哪些文件/改了哪些代码”；assistant message 更像一个“终止状态信号”，告诉用户“这轮执行完成了”。
@@ -52,19 +59,28 @@ items:
   - type: md
     title: SSE 事件流：不是“流式文本”，而是结构化事件日志
     body: |
-      原文解释了为什么 Responses API 的 streaming 对 harness 很重要：服务端通过 SSE 推送一串 `response.*` 事件。
-
-      其中两类事件的用途不同：
-
-      - `response.output_text.delta` 这类事件主要用于 UI：让用户看到“正在打字”。  
-      - `response.output_item.added` 等结构化事件则更像“执行日志”：harness 会把它们转成内部事件对象，并把这些对象追加到下一次请求的输入 items 里，保证状态可延续。
-
+      原文揭示了 Responses API 的 SSE 事件流（Streaming）对 Harness 架构的决定性意义：服务端会持续推送一系列 response.* 事件，而 Harness 必须对其中两类核心事件进行截然不同的分流处理：
+      - response.output_text.delta：这类事件负责向前端传递增量文本，只是为了让用户在界面上看到“正在打字”的流畅体验。
+      - response.output_item.added：这才是 Harness 底层运转的真正核心所在。它不仅是“执行日志”，更是驱动智能体自我迭代的“数据传送带”。Harness 必须精准捕获这类结构化事件，将其转化为内部对象（例如模型刚做出的 function_call 决策），并将其作为核心上下文追加到下一次 HTTP 请求的输入 Items 中。可以说，没有这类事件的持续捕获与回填，状态流转就会彻底断裂，整个 Agent Loop 根本无法运转。
+      
       这就是为什么在 agent 系统里，streaming 不只是体验优化：它也是“把中间过程结构化并落盘”的入口。
+
+  - type: md
+    title: 无状态的代价与好处：为什么 Codex 不用 `previous_response_id`
+    body: |
+      我们在一开始讲Item时就提出了一个问题：每次请求都带完整 JSON，随着对话增长，传输量确实是“二次方”增长趋势。
+
+      虽然Responses API 提供了一个可选参数 `previous_response_id` 来缓解这一问题，但 Codex 为了保持请求完全无状态，目前不使用它。这样就可以支持 ZDR（Zero Data Retention，零数据保留）即服务端完全不需要存储对话数据，保留其隐私性。
+
+      原文也指出了一个细节，即在 ZDR 场景下，客户不必担心隐私内容被以明文保存和传输——服务端和客户端只传递加密内容（encrypted_content），且可以在服务端解密使用；OpenAI 仅仅存储了 ZDR 客户的解密密钥，而不是对话数据本身。
+
+      对 agent-builder 来说，这段话的启发是：stateful 与 stateless 是一组架构取舍，你需要结合合规/隐私/缓存/成本一起权衡，而不是只看“网络传输更省”。
+
 
   - type: md
     title: 性能主题：prompt caching 为什么要求“前缀稳定”
     body: |
-      原文把成本直觉讲得很坦率：采样（inference）的成本通常远高于网络传输，因此提升效率的关键是 prompt caching。
+      原文把成本直觉讲得很坦率：推理（inference）的成本通常远高于网络传输，因此提升效率的关键是 prompt caching。
 
       缓存命中的必要条件非常苛刻：**新 prompt 的前缀必须与旧 prompt 完全一致**。  
       因此一个非常可迁移的设计原则是：把静态内容（指令/示例/工具定义）放在前面，把变化内容放在后面。
@@ -89,25 +105,15 @@ items:
 
       这背后的工程动机是：你既满足了“配置真的变了”的语义，又尽量不破坏已有前缀带来的缓存收益。
 
-  - type: md
-    title: 无状态的代价与好处：为什么 Codex 不用 `previous_response_id`
-    body: |
-      原文提出一个你可能也会担心的问题：每次请求都带完整 JSON，随着对话增长，传输量确实是“二次方”增长趋势。
-
-      Responses API 提供了一个可选参数 `previous_response_id` 来缓解这一问题，但原文明确说 Codex 目前不使用它，主要是为了保持请求完全无状态，并支持 ZDR（Zero Data Retention）。
-
-      原文还补充了一个很关键的实现细节：即便是 ZDR 场景，客户也不必牺牲“受保护 reasoning 内容”的收益——因为 `encrypted_content` 可以在服务端解密使用；OpenAI 持久化的是 ZDR 客户的解密密钥，而不是对话数据本身。
-
-      对 agent-builder 来说，这段话的启发是：stateful 与 stateless 是一组架构取舍，你需要结合合规/隐私/缓存/成本一起权衡，而不是只看“网络传输更省”。
 
   - type: md
-    title: 上下文续航：compaction 如何让 thread 能继续跑下去
+    title: 上下文压缩：如何让 thread 能继续跑下去
     body: |
-      除了缓存，原文认为 harness 还必须治理另一个硬资源：context window。
+      对于codex这种持久场景，你的模型上下文再大也总有用完的时候，因此除了缓存，harness 还必须治理另一个硬资源：上下文窗口（context window）。
 
-      Codex 的总体策略是：当 token 数超过某个阈值，就 compact 对话——用一组更小但“代表性足够”的 items 替换原 `input`，让 agent 仍能理解“到目前为止发生了什么”，并继续后续 turn。
+      Codex 的总体策略是：当 token 数超过某个阈值，就必须进行一次上下文压缩（context compaction）——用一组更小但“代表性足够”的 items 替换原 `input`，让 agent 仍能理解“到目前为止发生了什么”，并继续后续 turn。
 
-      原文还讲了 compaction 的演进：
+      原文还讲了上下文压缩的演进：
 
       - 早期：需要用户手动执行 `/compact`，系统用现有对话 + 总结指令去调用一次模型，再把总结作为新 `input`。  
       - 后来：Responses API 提供 `/responses/compact` endpoint，更高效地返回一组可直接替换 `input` 的 items。返回中包含 `type=compaction` 的条目，并带不透明的 `encrypted_content`，用于保留模型对原始对话的“潜在理解”。  

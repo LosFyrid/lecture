@@ -1,0 +1,24 @@
+id: agent-dev-201-t01-system-production
+title: "Agent 系统工程：从 Loop 到 Harness，再到上线闭环"
+description: |
+  当你开始用 API 写 agent 时，最大的跃迁往往不是“提示词更好”，而是把一次性对话变成一个可持续迭代的系统：
+  它要能循环调用模型、调用工具、维护状态，并且在上线后仍能被观测、被回归测试、被持续改进。
+
+  本 track 从两个最核心的工程对象入手：
+
+  - **Agent loop**：控制流的最小闭环——什么时候继续、什么时候停、怎样把工具结果回填给模型。
+  - **Harness**：围绕 loop 的“执行框架”——工具路由、权限与沙箱、记录与回放、失败处理、评估与监控。
+  
+  你将看到：为什么“能跑通”的 prototype 往往很快在真实任务里失控；以及哪些最小的工程约束能把 agent 从“演示”推向“可上线迭代”。
+
+  学习建议：如果你在 201 系列里只选一个起点，这个 track 通常最合适。后续关于上下文、工具边界、评估与多智能体的讨论，很多都会隐含依赖“loop/harness 是什么、系统到底在控制什么”的共同底座。
+modules:
+  - id: agent-loop-harness
+    title: "第 1 章：Agent Loop 与 Harness——控制流、接口与最小工程约束"
+    lessons:
+      - devblog-2026-01-23-unrolling-the-codex-agent-loop
+      - devblog-2026-02-17-improving-deep-agents-with-harness-engineering
+  - id: production-agentops
+    title: "第 2 章：上线后的不确定性——从可观测到迭代闭环"
+    lessons:
+      - devblog-2026-02-26-you-dont-know-what-your-agent-will-do-until-its

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { Markdown } from "@/components/Markdown";
 import { getAllTracks, getLessonById, getTrackById } from "@/lib/content";
 
 export const dynamicParams = false;
@@ -29,9 +30,9 @@ export default async function TrackPage({
         </div>
         <h1 className="text-2xl font-semibold tracking-tight">{track.title}</h1>
         {track.description ? (
-          <p className="max-w-3xl text-sm leading-6 text-zinc-600 dark:text-zinc-300">
-            {track.description}
-          </p>
+          <div className="max-w-3xl">
+            <Markdown>{track.description}</Markdown>
+          </div>
         ) : null}
       </header>
 
