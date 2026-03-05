@@ -19,7 +19,7 @@ items:
   - type: md
     title: 概念对齐：harness、traces、middleware 与 doom loop
     body: |
-      **Harness（执行引擎）**  
+      **Harness（执行框架）**  
       harness 的目标很清晰：通过引导模型充分发挥其智能，优化任务成功率、token 效率、延迟等。
 
       **Harness engineering**  

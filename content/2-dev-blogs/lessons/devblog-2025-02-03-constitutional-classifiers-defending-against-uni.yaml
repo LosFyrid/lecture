@@ -1,7 +1,7 @@
 id: devblog-2025-02-03-constitutional-classifiers-defending-against-uni
 title: "系统级 Jailbreak 防线：输入/输出分类器与红队闭环"
 summary: |
-  这篇研究文章提出 Constitutional Classifiers：在主模型的输入侧与输出侧各加一层分类器（classifier），用合成数据训练来识别/拦截 jailbreak，从系统层面降低“用户绕过安全训练”的风险。原文给出了两类关键证据（人类红队与自动化合成评测），并把工程权衡说得很具体：要同时看鲁棒性（robustness）、误拒（overrefusal）与额外算力开销（compute overhead），否则“更安全”也可能难以部署。
+  这篇研究文章提出 Constitutional Classifiers：在主模型的输入侧与输出侧各加一层分类器（classifier），用合成数据训练来识别/拦截 jailbreak，从系统层面降低“用户绕过安全训练”的风险。原文给出了两类关键证据（人类红队与自动化合成评测），并把工程权衡说得很具体：要同时看健壮性（robustness）、误拒（overrefusal）与额外算力开销（compute overhead），否则“更安全”也可能难以部署。
 items:
   - type: md
     title: 导入：本课要回答的问题
@@ -58,7 +58,7 @@ items:
   - type: md
     title: 原文的关键证据（1）：人类红队如何测“通用 jailbreak”
     body: |
-      原文用一项很“运营化”的实验来验证鲁棒性：让真实 jailbreakers 来攻击系统，而不是只在研究者自建的数据集上自测。
+      原文用一项很“运营化”的实验来验证健壮性：让真实 jailbreakers 来攻击系统，而不是只在研究者自建的数据集上自测。
 
       实验设置（原文给得很具体）：
 
@@ -94,15 +94,15 @@ items:
       这组数字的工程意义是：即便主模型已经做过安全训练，在面对“刻意对抗”的输入时，系统级 guardrail 仍然可以带来数量级的提升。
 
   - type: md
-    title: 可部署性三角：鲁棒性、误拒与算力开销
+    title: 可部署性三角：健壮性、误拒与算力开销
     body: |
       原文反复强调一个现实约束：你不能只盯“拦住了多少攻击”，还需要同时看：
 
-      - **鲁棒性（robustness）**：对强对抗输入是否仍然能拒绝  
+      - **健壮性（robustness）**：对强对抗输入是否仍然能拒绝  
       - **误拒（overrefusal）**：对正常请求是否尽量不伤害可用性  
       - **算力开销（compute overhead）**：加两层分类器会不会让系统成本/延迟不可接受
 
-      原文指出 prototype 版虽然在“人类红队通用 jailbreak”上表现很强，但误拒与开销偏高；随后他们改进系统，在合成评测上维持相近鲁棒性，并把额外拒绝率控制到很小的量级（原文给出的数字是 **+0.38%**），同时将计算开销降到“moderate”级别（仍然有额外成本，但不至于不可部署）。
+      原文指出 prototype 版虽然在“人类红队通用 jailbreak”上表现很强，但误拒与开销偏高；随后他们改进系统，在合成评测上维持相近健壮性，并把额外拒绝率控制到很小的量级（原文给出的数字是 **+0.38%**），同时将计算开销降到“moderate”级别（仍然有额外成本，但不至于不可部署）。
 
       对 agent-builder 来说，这个三角的启发是：安全方案的目标不只是“证明一个上限”，而是“在可接受成本下，把风险分布压到你愿意承担的范围”。
 
@@ -126,7 +126,7 @@ items:
 
       1) **明确一份“禁止/允许”的政策（policy）**：不需要一开始就很长，但要能被测试与讨论。  
       2) **实现输入/输出检查点**：可以先用规则/关键词/小模型做 baseline，再逐步升级成更强的分类器。  
-      3) **把误拒与漏检都记录下来**：误拒样本用于降 overrefusal，漏检样本用于补鲁棒性。  
+      3) **把误拒与漏检都记录下来**：误拒样本用于降 overrefusal，漏检样本用于加强健壮性。  
       4) **把红队/攻击样本变成回归集**：否则你只是在“打一次仗”，而不是在“建立一条防线”。
 
       这与原文的姿势一致：用系统性 guardrail 提升稳态安全性，并用持续评测与更新来对抗动态博弈。
@@ -148,7 +148,7 @@ items:
     body: |
       - 日期：2025-02-03
       - 来源：Anthropic
-      - 建议：阅读原文时建议按顺序抓三件事：1) 为什么把 jailbreak 视为 Responsible Scaling 的关键风险；2) Constitutional Classifiers 的定义（input/output classifiers + synthetic data）；3) 两类评测（人类红队 + 合成评测）如何共同支持“鲁棒性/误拒/算力开销”的三角权衡。
+      - 建议：阅读原文时建议按顺序抓三件事：1) 为什么把 jailbreak 视为 Responsible Scaling 的关键风险；2) Constitutional Classifiers 的定义（input/output classifiers + synthetic data）；3) 两类评测（人类红队 + 合成评测）如何共同支持“健壮性/误拒/算力开销”的三角权衡。
 
   - type: url
     title: "原文：Constitutional Classifiers: Defending against universal jailbreaks"
