@@ -44,7 +44,7 @@ items:
       - 输入输出 schema 清楚  
       - 相同输入条件下，结果更可预测（更像函数调用）
 
-      但它也列出三类 downside：
+      但它也列出三个限制 ：
 
       1) **工具规模化难（discovery hard）**：工具越多，agent 越难通过 name/description 找到正确工具；这推动了 MCP gateways / discovery middlewares 的需求。  
       2) **不优化的 tool 会把上下文塞爆**：例如返回大段内容，直接造成 context bloat。  

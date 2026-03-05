@@ -48,18 +48,18 @@ items:
       在这种设置下，攻击者不需要“攻破模型”，只需要让模型相信某段文本是高优先级指令，就可能触发越权行动（外泄、写配置、植入后门、执行脚本）。
 
   - type: md
-    title: 为什么只靠人工审批不够：摩擦与 habituation
+    title: 为什么只靠人工审批不够：摩擦与行为惯性
     body: |
       原文承认：手动审批是最常见的风险管理方式，但它有一个现实副作用：持续打断会带来摩擦。
 
-      当审批次数过多时，用户容易形成 habituation：不再认真阅读，而是习惯性点击“允许”。这会让审批从防线退化成形式。
+      当审批次数过多时，用户容易形成行为惯性：不再认真阅读，而是习惯性点击“允许”。这会让审批从防线退化成形式。
 
       因此原文强调：需要在“自动化”与“人类监督”之间找平衡，而真正能兜底的通常是强制隔离（default deny + mandatory controls），而不是把所有风险都押在审批按钮上。
 
   - type: md
-    title: Mandatory controls（原文认为必须做的三条硬防线）
+    title: Mandatory controls（强制性安全控制）
     body: |
-      原文给出三条 mandatory 控制，并明确它们对 indirect injection 的阻断价值：
+      原文给出了认为必须要做的三条硬防线，并明确它们对 indirect injection 的阻断价值：
 
       1) **Network egress controls（限制外连）**  
          阻止 agent 任意连接外部站点，可以显著降低数据外泄与远程 shell 的风险。
@@ -88,7 +88,7 @@ items:
       对 agent-builder 来说，这段话的结论是：如果你真的允许 agent 执行代码，你需要把关键隔离放到 OS/虚拟化层，而不是只在应用层“做几个正则拦截”。
 
   - type: md
-    title: Recommended controls（进一步降低攻击面）
+    title: Recommended controls（可以实行的安全控制）
     body: |
       原文还列出一组 recommended 控制，用来降低枚举、探索、kernel 级风险与 secrets 暴露：
 

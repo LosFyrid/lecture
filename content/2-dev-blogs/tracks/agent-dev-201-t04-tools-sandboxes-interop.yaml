@@ -1,0 +1,34 @@
+id: agent-dev-201-t04-tools-sandboxes-interop
+title: "工具与执行边界：互操作、隔离与安全"
+description: |
+  在 agent 系统里，“会调用工具”只是起点。真正决定可靠性的，是工具层能否形成清晰的执行边界：
+  - 工具定义是否可互操作（不同框架/不同团队能否复用同一套工具）  
+  - 调用与结果是否可追溯、可验证（出了问题能否定位是哪一次调用造成的）  
+  - 执行是否可隔离（把高风险动作放进沙箱或受控环境）  
+  - 风险是否可治理（权限最小化、注入防护、审计与回放）
+
+  本 track 覆盖从“工具协议”到“沙箱架构”的关键连接点：MCP 的互操作思路、开放的事件/响应接口、技能与工具的边界、两类常见 sandbox 连接模式，以及面向编码/文件系统的安全实践。
+
+  学习建议：如果你的 agent 已经能稳定跑通 tool loop，那么这条 track 会帮助你把“工具调用”升级为“可集成、可治理的执行层”。很多安全与互操作问题，并不会在 demo 阶段出现，但一旦接入真实文件系统/网络/第三方服务，就会立刻变成系统性风险。
+modules:
+  - id: mcp-tools-spec
+    title: "第 1 章：工具互操作——MCP Tools 规范"
+    lessons:
+      - devblog-2025-11-25-tools-model-context-protocol
+  - id: open-responses
+    title: "第 2 章：事件与控制流——Open Responses（事件流 / tool loop）"
+    lessons:
+      - devblog-2026-01-15-open-responses-what-you-need-to-know
+  - id: skills-vs-tools
+    title: "第 3 章：能力封装——Skills vs Tools（何时用哪种）"
+    lessons:
+      - devblog-2026-02-03-skills-vs-mcp-tools-for-agents-when-to-use-what
+  - id: sandbox-patterns
+    title: "第 4 章：执行隔离架构——Agent-in-sandbox vs Sandbox-as-tool"
+    lessons:
+      - devblog-2026-02-10-the-two-patterns-by-which-agents-connect-sandbox
+  - id: execution-security
+    title: "第 5 章：执行安全——间接注入、最小权限与隔离"
+    lessons:
+      - devblog-2026-01-30-practical-security-guidance-for-sandboxing-agent
+      - devblog-2025-12-15-secure-filesystem-access-for-coding-agents-llama
