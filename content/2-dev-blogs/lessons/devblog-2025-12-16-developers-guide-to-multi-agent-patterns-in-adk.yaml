@@ -30,8 +30,8 @@ items:
       - 你能不能写集成测试（断言某个 key 应该出现某种结构）  
       - 并行时会不会互相覆盖（需要 key 约定防 race condition）
 
-      **Synthesizer / Orchestrator（收敛者）**  
-      当多个分支产出结果时，需要一个“合成者”把它们变成一个一致答案/决策。它的工作不是“再写一遍长文”，而是做去重、对齐口径、补洞与最终输出。
+      **Synthesizer / Orchestrator（统筹者）**  
+      当多个分支产出结果时，需要一个“统筹者”把它们变成一个一致答案/决策。它的工作不是“再写一遍长文”，而是做去重、对齐口径、补洞与最终输出。
 
   - type: md
     title: Pattern 1：Sequential Pipeline（顺序流水线）——像装配线一样可追踪
