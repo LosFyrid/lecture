@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { Markdown } from "@/components/Markdown";
 import { getAllTracks } from "@/lib/content";
 
 export default function Home() {
@@ -69,9 +70,12 @@ export default function Home() {
                     </span>
                   </div>
                   {track.description ? (
-                    <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-300">
+                    <Markdown
+                      disableLinks
+                      className="space-y-2 text-sm leading-6 text-zinc-600 dark:text-zinc-300"
+                    >
                       {track.description}
-                    </p>
+                    </Markdown>
                   ) : (
                     <p className="text-sm leading-6 text-zinc-500 dark:text-zinc-400">
                       未填写描述
