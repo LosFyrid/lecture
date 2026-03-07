@@ -141,7 +141,7 @@ items:
       - 评审：指出描述过泛、缺触发、结构问题；提示潜在 over/under-trigger 风险  
       - 迭代：把失败案例喂回去，让它建议如何改写（例如“用这次对话里发现的问题改进该 skill”）
 
-      材料也强调了限制：`skill-creator` 不会替你跑自动化评测，也不会自动产出量化指标。
+      此外 `skill-creator` 提供了评测/基准测试的流程与脚本约定；是否能‘自动跑’取决于运行环境与工具可用性。
 
       原文给出的使用句式是：
       - “Use the skill-creator skill to help me build a skill for [your use case]”

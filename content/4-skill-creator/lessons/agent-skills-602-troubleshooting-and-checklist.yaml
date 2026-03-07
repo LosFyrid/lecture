@@ -126,7 +126,7 @@ items:
 
       常用解法：
       - 把细节移到 `references/`，在正文里用“先看哪个文件”的方式引用
-      - 控制 SKILL.md 规模（材料建议保持在 ~5000 words 以内）
+      - 控制 SKILL.md 规模（材料应当保持在 < 5000 tokens为最佳，约500行文本。）
       - 建议用户“按需启用 skills”，必要时做 skills pack（按场景分组）
 
   - type: md
