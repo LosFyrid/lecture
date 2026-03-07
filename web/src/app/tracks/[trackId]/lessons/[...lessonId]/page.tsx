@@ -83,9 +83,9 @@ export default async function LessonPage({
 
         <h1 className="text-2xl font-semibold tracking-tight">{lesson.title}</h1>
         {lesson.summary ? (
-          <p className="max-w-4xl text-sm leading-6 text-zinc-600 dark:text-zinc-300">
+          <Markdown className="max-w-4xl space-y-2 text-sm leading-6 text-zinc-600 dark:text-zinc-300">
             {lesson.summary}
-          </p>
+          </Markdown>
         ) : null}
       </header>
 

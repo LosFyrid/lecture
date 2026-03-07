@@ -62,9 +62,12 @@ export default async function TrackPage({
                     >
                       <div className="font-medium">{lesson.title}</div>
                       {lesson.summary ? (
-                        <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+                        <Markdown
+                          disableLinks
+                          className="mt-1 space-y-2 text-sm leading-6 text-zinc-600 dark:text-zinc-300"
+                        >
                           {lesson.summary}
-                        </div>
+                        </Markdown>
                       ) : null}
                     </Link>
                   </li>

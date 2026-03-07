@@ -3,9 +3,11 @@ import remarkGfm from "remark-gfm";
 
 type MarkdownProps = {
   children: string;
+  className?: string;
+  disableLinks?: boolean;
 };
 
-export function Markdown({ children }: MarkdownProps) {
+export function Markdown({ children, className, disableLinks }: MarkdownProps) {
   return (
     <div
       className={[
@@ -20,19 +22,22 @@ export function Markdown({ children }: MarkdownProps) {
         "[&_li]:marker:text-zinc-400",
         "[&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:border-black/10 [&_th]:px-2 [&_th]:py-1 [&_td]:border [&_td]:border-black/10 [&_td]:px-2 [&_td]:py-1 dark:[&_th]:border-white/15 dark:[&_td]:border-white/15",
         "[&_blockquote]:border-l-2 [&_blockquote]:border-black/10 [&_blockquote]:pl-4 [&_blockquote]:text-zinc-600 dark:[&_blockquote]:border-white/15 dark:[&_blockquote]:text-zinc-300",
+        className,
       ].join(" ")}
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
           a: ({ href, children }) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {children}
-            </a>
+            disableLinks || !href ? (
+              <span className="underline decoration-dotted underline-offset-4">
+                {children}
+              </span>
+            ) : (
+              <a href={href} target="_blank" rel="noreferrer">
+                {children}
+              </a>
+            )
           ),
         }}
       >
