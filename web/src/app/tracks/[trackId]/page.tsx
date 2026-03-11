@@ -30,9 +30,9 @@ export default async function TrackPage({
         </div>
         <h1 className="text-2xl font-semibold tracking-tight">{track.title}</h1>
         {track.description ? (
-          <Markdown className="max-w-3xl space-y-2 text-sm leading-6 text-zinc-600 dark:text-zinc-300">
-            {track.description}
-          </Markdown>
+          <div className="max-w-3xl">
+            <Markdown>{track.description}</Markdown>
+          </div>
         ) : null}
       </header>
 

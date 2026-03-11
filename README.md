@@ -26,10 +26,25 @@
 - Track：学习路径（若干模块，每个模块若干 lesson）
 - Lesson：一个课时，主要由若干 `items` 组成；`body`（教学叙事）是可选的
 
-示例文件：
+示例文件（逐课发布模式下，首次发布后会出现）：
 
-- `content/tracks/agent-dev.yaml`
-- `content/lessons/intro.yaml`
+- `content/tracks/published.yaml`
+- `content/**/lessons/*.yaml`
+
+### 逐课发布（校对一个，上线一个）
+
+为了避免一次性把未经校对的内容全部上线，可以让 `content/` 保持为空（仅保留空目录 `content/lessons/`、`content/tracks/`），并在每次校对完成后只发布单个 lesson：
+
+```bash
+# 1) 把一个 lesson 从备份发布回 content/，并自动更新 published track + 重新生成 web/src/generated/content.json
+node tools/publish-lesson.mjs .backup/content/lessons/intro.yaml
+```
+
+该脚本会：
+
+- 把 `.backup/content/.../lessons/...yaml` 复制回 `content/.../lessons/...yaml`
+- 创建/更新 `content/tracks/published.yaml`，把该 lesson 追加到列表末尾
+- 默认执行 `node web/scripts/build-content.mjs` 以确保站点只展示已发布内容（可加 `--no-build` 跳过）
 
 站内也提供两页自说明（方便“只给链接就能看”）：
 

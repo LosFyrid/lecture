@@ -1,0 +1,1 @@
+node --watch --watch-path=content --watch-preserve-output web/scripts/build-content.mjs & npm -C web run dev
